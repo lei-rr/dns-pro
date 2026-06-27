@@ -171,8 +171,9 @@ class ProviderRepository
 
     /**
      * 引用方需要确认被引用 provider 自身 required 完整：
-     *   - edgeone:  dnspod_provider 必填
-     *   - hostname: cloudflare_provider 必填、dnspod_provider 选填（填了就要 configured）
+     *   - edgeone:     dnspod_provider 必填
+     *   - hostname:    cloudflare_provider 必填、dnspod_provider 选填（填了就要 configured）
+     *   - cloudflared: cloudflare_provider 必填
      */
     private function isLinkedProviderConfigured(array $provider): bool
     {
@@ -188,6 +189,10 @@ class ProviderRepository
             }
             $dnspod = (string) ($provider['dnspod_provider'] ?? '');
             return $dnspod === '' || $this->refConfigured($dnspod, 'dnspod');
+        }
+
+        if ($type === 'cloudflared') {
+            return $this->refConfigured((string) ($provider['cloudflare_provider'] ?? ''), 'cloudflare');
         }
 
         return true;

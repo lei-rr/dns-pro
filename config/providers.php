@@ -45,5 +45,15 @@ return [
                 'dnspod_provider' => '关联 DNSPod API',
             ],
         ],
+        'cloudflared' => [
+            'type' => 'cloudflared',
+            'name' => 'Cloudflare Tunnel',
+            'fields' => ['cloudflare_provider'],
+            'required' => ['cloudflare_provider'],
+            'secret_fields' => [],
+            'labels' => [
+                'cloudflare_provider' => '关联 Cloudflare API',
+            ],
+        ],
     ],
 ];

@@ -18,6 +18,8 @@ return [
         'cloudflare:custom_hostnames',
         'cloudflare:dcv_delegation',
         'cloudflare:fallback_origin',
+        'cloudflare:tunnels',
+        'cloudflare:tunnel_config',
         'dnspod:zones',
         'dnspod:records',
         'edgeone:zones',

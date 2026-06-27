@@ -48,10 +48,29 @@ export default {
         this.form.cloudflare_provider = provider.cloudflare_provider || this.cloudflareProviders[0]?.id || ''
         this.form.dnspod_provider = provider.dnspod_provider || ''
       }
+      if (provider.type === 'cloudflared') {
+        this.form.cloudflare_provider = provider.cloudflare_provider || this.cloudflareProviders[0]?.id || ''
+      }
     },
     openCreate() {
       this.createForm = { id: '', name: '', type: 'dnspod' }
       this.creating = true
+    },
+    /**
+     * 切换类型时，预填关联 provider 字段（dnspod_provider / cloudflare_provider）
+     * 避免用户忘记选择导致"参数校验未通过"
+     */
+    onCreateTypeChange(type) {
+      const fields = this.createFields(type)
+      const next = { id: this.createForm.id, name: this.createForm.name, type }
+      for (const field of fields) {
+        if (field === 'dnspod_provider') {
+          next[field] = this.dnspodProviders[0]?.id || ''
+        } else if (field === 'cloudflare_provider') {
+          next[field] = this.cloudflareProviders[0]?.id || ''
+        }
+      }
+      this.createForm = next
     },
     createFields(type = this.createForm.type) {
       return this.providerDefinition(type)?.fields || []
@@ -139,10 +158,21 @@ export default {
           name: this.createForm.name.trim(),
           type: this.createForm.type,
         }
-        for (const field of fields) payload[field] = String(this.createForm[field] || '').trim()
+        for (const field of fields) {
+          let value = String(this.createForm[field] || '').trim()
+          // 兜底：provider 关联字段若未选且只有一个候选，自动选中；避免误报"参数校验未通过"
+          if (value === '' && this.isProviderSelectField(field)) {
+            const candidates = this.selectFieldProviders(field)
+            if (candidates.length === 1) value = candidates[0].id
+          }
+          payload[field] = value
+        }
         const missing = this.requiredFields(this.createForm.type).find((field) => !payload[field])
         if (missing) {
-          message.warning(`${this.fieldLabel(missing)} 不能为空`)
+          const hint = this.isProviderSelectField(missing) && this.selectFieldProviders(missing).length === 0
+            ? `请先创建并配置一个${this.selectFieldPlaceholder(missing).replace('选择', '')}`
+            : `${this.fieldLabel(missing)} 不能为空`
+          message.warning(hint)
           return
         }
         await providerSettingsApi.createProvider(payload)
@@ -216,7 +246,10 @@ export default {
       }
 
       if (provider.type === 'cloudflare') {
-        return this.providers.filter((item) => item.type === 'hostname' && item.cloudflare_provider === provider.id)
+        return this.providers.filter((item) =>
+          (item.type === 'hostname' && item.cloudflare_provider === provider.id) ||
+          (item.type === 'cloudflared' && item.cloudflare_provider === provider.id)
+        )
       }
 
       return []
@@ -338,7 +371,7 @@ export default {
       <a-modal v-model:open="creating" title="新增服务商" :confirm-loading="saving" ok-text="保存" cancel-text="取消" @ok="create">
         <a-form layout="vertical">
           <a-form-item label="类型" required>
-            <a-select v-model:value="createForm.type">
+            <a-select :value="createForm.type" @change="onCreateTypeChange">
               <a-select-option v-for="providerType in providerTypes" :key="providerType.type" :value="providerType.type">{{ providerType.name }}</a-select-option>
             </a-select>
           </a-form-item>

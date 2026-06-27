@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace app\controller\hostname;
 
+use app\controller\concerns\ResolvesQueryParams;
 use app\exception\ApiException;
 use app\service\hostname\HostnameService;
 use app\service\hostname\HostnameSyncService;
@@ -23,6 +24,8 @@ use think\Response;
  */
 class HostnameController
 {
+    use ResolvesQueryParams;
+
     public function __construct(
         private readonly HostnameService $hostnames,
         private readonly HostnameSyncService $sync,
@@ -173,19 +176,6 @@ class HostnameController
     private function body(string $scene, string $verb): array
     {
         return validate(HostnameValidate::class)->scene($scene)->checked(input($verb . '.', []));
-    }
-
-    /**
-     * 读取布尔 query 参数:1/true/on/yes = true;0/false/off/no = false;其余用 default
-     */
-    private function boolQuery(string $key, bool $default = false): bool
-    {
-        $value = strtolower((string) input('get.' . $key, ''));
-        if ($value === '') {
-            return $default;
-        }
-        return in_array($value, ['1', 'true', 'on', 'yes'], true) ? true
-            : (in_array($value, ['0', 'false', 'off', 'no'], true) ? false : $default);
     }
 
     /**

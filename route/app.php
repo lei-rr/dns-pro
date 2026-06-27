@@ -23,6 +23,7 @@ Route::get('dnspod/<path>', [Index::class, 'index'])->pattern(['path' => '.*']);
 Route::get('cloudflare/<path>', [Index::class, 'index'])->pattern(['path' => '.*']);
 Route::get('edgeone/<path>', [Index::class, 'index'])->pattern(['path' => '.*']);
 Route::get('hostname/<path>', [Index::class, 'index'])->pattern(['path' => '.*']);
+Route::get('cloudflared/<path>', [Index::class, 'index'])->pattern(['path' => '.*']);
 
 // API 路由组
 Route::group('api', function () {
@@ -38,6 +39,7 @@ Route::group('api', function () {
         require __DIR__ . '/api/cloudflare.php';
         require __DIR__ . '/api/edgeone.php';
         require __DIR__ . '/api/hostname.php';
+        require __DIR__ . '/api/cloudflared.php';
     })->middleware('auth.required');
 
     Route::miss(fn () => ApiResponse::error(

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace app\controller\edgeone;
 
+use app\controller\concerns\ResolvesQueryParams;
 use app\service\edgeone\EdgeOneService;
 use app\support\ApiResponse;
 use app\validate\EdgeOneRecordValidate;
@@ -11,6 +12,8 @@ use think\Response;
 
 class EdgeOneAccelerationDomainController
 {
+    use ResolvesQueryParams;
+
     public function __construct(private readonly EdgeOneService $edgeone)
     {
     }
@@ -100,18 +103,5 @@ class EdgeOneAccelerationDomainController
     private function zoneId(string $providerId, string $zoneName): string
     {
         return $this->edgeone->zoneIdByName($providerId, strtolower(trim($zoneName)));
-    }
-
-    /**
-     * 读取布尔 query 参数:1/true/on/yes = true;0/false/off/no = false;其余用 default
-     */
-    private function boolQuery(string $key, bool $default = false): bool
-    {
-        $value = strtolower((string) input('get.' . $key, ''));
-        if ($value === '') {
-            return $default;
-        }
-        return in_array($value, ['1', 'true', 'on', 'yes'], true) ? true
-            : (in_array($value, ['0', 'false', 'off', 'no'], true) ? false : $default);
     }
 }
