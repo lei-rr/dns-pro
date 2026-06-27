@@ -1,0 +1,301 @@
+[v-cloak] { display: none; }
+
+/* 全局消息提示：避免被导航栏遮挡（header 高 64px） */
+.ant-message {
+  top: 80px !important;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: #fff;
+}
+
+:root {
+  --table-copy-width: 280px;
+  --table-compact-copy-width: 220px;
+  --table-remark-width: 140px;
+}
+
+.app-container {
+  width: 80%;
+  margin: 0 auto;
+}
+
+.app-main {
+  padding: 28px 0 48px;
+}
+
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  gap: 16px;
+}
+
+.app-brand-nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
+  flex: 1;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.app-menu {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
+}
+
+.page-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.page-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.page-actions .ant-input-search {
+  width: min(280px, 100%);
+}
+
+.provider-card .ant-card-meta-title {
+  margin-bottom: 4px;
+}
+
+.copy-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.origin-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.truncate-text {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: var(--table-copy-width);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-button {
+  flex: 0 0 auto;
+  padding: 0;
+  color: #8c8c8c;
+}
+
+.copy-button:hover,
+.copy-button:focus {
+  color: #595959;
+}
+
+.break-text {
+  word-break: break-all;
+}
+
+.nowrap-cell {
+  white-space: nowrap;
+}
+
+.dns-type-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.dns-priority-tag {
+  margin-inline-end: 0;
+  padding-inline: 4px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.dns-record-table .ant-table-cell {
+  white-space: nowrap;
+}
+
+.dns-record-name {
+  max-width: 130px;
+}
+
+.table-remark {
+  max-width: var(--table-remark-width);
+}
+
+.provider-sort-row-dragging > td {
+  opacity: .45;
+}
+
+.modal-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.modal-form-actions-main {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.form-helper-text {
+  display: block;
+  margin-top: 6px;
+}
+
+.batch-toolbar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid #e6eaf2;
+  border-radius: 999px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, .14);
+  color: inherit;
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px);
+}
+
+.ant-table-pagination.ant-pagination {
+  align-items: center;
+}
+
+.ant-table-pagination .ant-pagination-options {
+  order: -1;
+  margin-inline-start: 0;
+  margin-inline-end: 8px;
+}
+
+@media (max-width: 640px) {
+  .app-container {
+    width: calc(100vw - 24px);
+  }
+
+  .app-main {
+    padding: 18px 0 32px;
+  }
+
+  /* 手机端 header 需要 auto 高度容纳两行(brand + menu) */
+  .ant-layout-header {
+    height: auto !important;
+    line-height: normal !important;
+    padding: 0 !important;
+  }
+
+  .app-header-inner {
+    height: auto;
+    min-height: 64px;
+    align-items: flex-start;
+    padding: 10px 0;
+  }
+
+  .app-brand-nav {
+    display: block !important;
+  }
+
+  .app-brand {
+    margin-bottom: 8px;
+  }
+
+  .app-menu {
+    width: calc(100vw - 72px);
+    min-width: 0;
+  }
+
+  .ant-layout-header .ant-menu-horizontal > .ant-menu-item,
+  .ant-layout-header .ant-menu-horizontal > .ant-menu-submenu {
+    padding-inline: 10px;
+  }
+
+  .page-toolbar {
+    display: block;
+    margin-bottom: 16px;
+  }
+
+  .page-actions {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  .page-actions .ant-btn,
+  .page-actions .ant-input-search {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .ant-modal {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px);
+  }
+
+  .ant-modal-content {
+    max-width: 100%;
+  }
+
+  .ant-card-body {
+    padding: 16px;
+  }
+
+  .truncate-text {
+    max-width: var(--table-compact-copy-width);
+  }
+
+  .modal-form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .batch-toolbar {
+    bottom: 16px;
+    justify-content: space-between;
+    width: calc(100vw - 24px);
+    border-radius: 14px;
+  }
+
+  .modal-form-actions-main {
+    justify-content: stretch;
+  }
+
+  .modal-form-actions-main .ant-btn {
+    flex: 1;
+  }
+}
