@@ -5,9 +5,10 @@ export default {
   props: {
     open: { type: Boolean, default: false },
     hostname: { type: Object, default: null },
+    loading: { type: Boolean, default: false },
     refreshing: { type: Boolean, default: false },
   },
-  emits: ['update:open', 'refresh'],
+  emits: ['update:open', 'refresh', 'edit'],
   computed: {
     // 是否仍需要提示用户完成 DCV 验证（active/deleted 等终态不再提示）
     needsDcvHelp() {
@@ -76,6 +77,7 @@ export default {
   },
   template: `
     <a-modal :open="open" @update:open="v => $emit('update:open', v)" title="自定义主机名详情" :footer="null" width="760px" destroy-on-close>
+      <a-spin :spinning="loading">
       <template v-if="hostname">
         <a-alert
           v-if="errorMessages.length"
@@ -140,10 +142,12 @@ export default {
         </details>
 
         <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <a-button @click="$emit('edit', hostname)">编辑</a-button>
           <a-button :loading="refreshing" @click="$emit('refresh', hostname)">刷新状态</a-button>
           <a-button @click="close">关闭</a-button>
         </div>
       </template>
+      </a-spin>
     </a-modal>
   `,
 }

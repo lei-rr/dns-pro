@@ -3,6 +3,7 @@ import { providersApi } from './api.js'
 const { defineStore } = Pinia
 
 let providersPromise = null
+let providersRequestToken = 0
 
 export const useProviderStore = defineStore('providers', {
   state: () => ({ providers: null, loading: false, error: null }),
@@ -10,25 +11,30 @@ export const useProviderStore = defineStore('providers', {
     async load(options = {}) {
       if (options.refresh) {
         providersPromise = null
-        this.providers = null
       }
-      if (this.providers) return this.providers
+      if (!options.refresh && this.providers) return this.providers
 
       if (!providersPromise) {
+        const requestToken = providersRequestToken + 1
+        providersRequestToken = requestToken
         this.loading = true
         this.error = null
         providersPromise = providersApi.configured()
           .then((response) => {
+            if (requestToken !== providersRequestToken) return this.providers
             this.providers = response.data
             return this.providers
           })
           .catch((error) => {
+            if (requestToken !== providersRequestToken) return this.providers
             this.error = error
             throw error
           })
           .finally(() => {
-            providersPromise = null
-            this.loading = false
+            if (requestToken === providersRequestToken) {
+              providersPromise = null
+              this.loading = false
+            }
           })
       }
 
@@ -38,6 +44,7 @@ export const useProviderStore = defineStore('providers', {
     },
     clear() {
       providersPromise = null
+      providersRequestToken += 1
       this.providers = null
       this.error = null
     },
@@ -55,6 +62,7 @@ export function clearProvidersCache() {
 export function replaceProvidersCache(providers) {
   const store = useProviderStore()
   providersPromise = null
+  providersRequestToken += 1
   store.providers = providers
   store.error = null
   store.loading = false

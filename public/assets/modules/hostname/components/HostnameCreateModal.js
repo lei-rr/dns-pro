@@ -4,10 +4,14 @@ export default {
   name: 'HostnameCreateModal',
   props: {
     open: { type: Boolean, default: false },
+    title: { type: String, default: '新增自定义主机名' },
+    okText: { type: String, default: '创建' },
     confirmLoading: { type: Boolean, default: false },
     dnspodLinked: { type: Boolean, default: false },
     originSuggestions: { type: Array, default: () => [] },
     preferredDomains: { type: Array, default: () => [] },
+    initialValue: { type: Object, default: null },
+    editing: { type: Boolean, default: false },
   },
   emits: ['update:open', 'submit'],
   data() {
@@ -15,8 +19,11 @@ export default {
   },
   watch: {
     open(value) { if (value) this.form = this.defaultForm() },
-    dnspodLinked() { if (this.open) this.form = this.defaultForm() },
-    preferredDomains() { if (this.open && this.dnspodLinked && !this.form.preferred_domain) this.form.preferred_domain = this.firstPreferred() },
+    preferredDomains() {
+      if (this.open && this.dnspodLinked && !this.editing && !this.form.preferred_domain) {
+        this.form.preferred_domain = this.firstPreferred()
+      }
+    },
   },
   computed: {
     preferredOptions() {
@@ -39,7 +46,23 @@ export default {
     firstPreferred() {
       return this.preferredOptions[0]?.value || ''
     },
+    normalizeInitialValue() {
+      const current = this.initialValue || {}
+      const customOriginServer = String(current.custom_origin_server || '').trim()
+
+      return {
+        hostname: String(current.hostname || '').trim(),
+        custom_origin_server: customOriginServer,
+        method: String(current.ssl?.method || 'txt').trim() || 'txt',
+        min_tls_version: String(current.ssl?.settings?.min_tls_version || '1.0').trim() || '1.0',
+        use_custom_origin_server: customOriginServer !== '',
+        autoSync: this.dnspodLinked,
+        preferred_domain: String(current.custom_metadata?.preferred_domain || '').trim(),
+      }
+    },
     defaultForm() {
+      if (this.editing) return this.normalizeInitialValue()
+
       return {
         hostname: '',
         custom_origin_server: '',
@@ -57,10 +80,10 @@ export default {
     },
   },
   template: `
-    <a-modal :open="open" @update:open="v => $emit('update:open', v)" title="新增自定义主机名" :confirm-loading="confirmLoading" :ok-button-props="{ disabled: !canSubmit }" ok-text="创建" cancel-text="取消" @ok="submit">
+    <a-modal :open="open" @update:open="v => $emit('update:open', v)" :title="title" :confirm-loading="confirmLoading" :ok-button-props="{ disabled: !canSubmit }" :ok-text="okText" cancel-text="取消" @ok="submit">
       <a-form layout="vertical">
         <a-form-item label="主机名" required>
-          <a-input v-model:value="form.hostname" placeholder="app.example.com" />
+          <a-input v-model:value="form.hostname" placeholder="app.example.com" :disabled="editing" />
         </a-form-item>
         <a-form-item label="DCV 认证">
           <a-select v-model:value="form.method">

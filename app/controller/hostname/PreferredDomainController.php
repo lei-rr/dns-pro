@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace app\controller\hostname;
 
+use app\controller\concerns\ValidatesInput;
 use app\service\hostname\PreferredDomainService;
 use app\support\ApiResponse;
 use app\validate\PreferredDomainValidate;
@@ -17,6 +18,8 @@ use think\Response;
  */
 class PreferredDomainController
 {
+    use ValidatesInput;
+
     public function __construct(private readonly PreferredDomainService $preferredDomains)
     {
     }
@@ -28,14 +31,14 @@ class PreferredDomainController
 
     public function store(): Response
     {
-        $data = validate(PreferredDomainValidate::class)->scene('store')->checked(input('post.', []));
+        $data = $this->postInput(PreferredDomainValidate::class, 'store');
 
         return ApiResponse::data($this->preferredDomains->create((string) $data['domain']), 201);
     }
 
     public function update(string $domain): Response
     {
-        $data = validate(PreferredDomainValidate::class)->scene('update')->checked(input('put.', []));
+        $data = $this->putInput(PreferredDomainValidate::class, 'update');
 
         return ApiResponse::data($this->preferredDomains->rename(rawurldecode($domain), (string) $data['domain']));
     }
@@ -49,7 +52,7 @@ class PreferredDomainController
 
     public function sort(): Response
     {
-        $data = validate(PreferredDomainValidate::class)->scene('sort')->checked(input('put.', []));
+        $data = $this->putInput(PreferredDomainValidate::class, 'sort');
         $domains = array_map(static fn ($v) => (string) $v, (array) ($data['domains'] ?? []));
 
         return ApiResponse::data(['items' => $this->preferredDomains->reorder($domains)]);

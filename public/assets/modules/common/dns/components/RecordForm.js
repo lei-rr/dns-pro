@@ -1,4 +1,5 @@
 import { message } from '../../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../../shared/utils/errors.js'
 import { defaultProviderHook } from '../hook.js'
 
 export default {
@@ -47,7 +48,7 @@ export default {
     submit() {
       const error = this.validate()
       if (error) {
-        message.error(error)
+        message.error(errorMessage(error, '表单校验失败'))
         return
       }
 

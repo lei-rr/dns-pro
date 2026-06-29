@@ -2,6 +2,7 @@ import { edgeOneApi } from '../utils/api.js'
 import { providerPath } from '../../../routes/paths.js'
 import { loadProviders } from '../../../providers/store.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 import BatchToolbar from '../../../shared/components/BatchToolbar.js'
 import EdgeOneCertificateForm from '../components/EdgeOneCertificateForm.js'
 import EdgeOneRecordForm from '../components/EdgeOneRecordForm.js'
@@ -11,7 +12,7 @@ export default {
   components: { BatchToolbar, EdgeOneCertificateForm, EdgeOneRecordForm, EdgeOneRecordTable },
   props: ['provider', 'zoneName'],
   data() {
-    return { records: [], selectedRecords: [], selectionResetKey: 0, notFound: false, editing: null, certEditing: null, showForm: false, showCertForm: false, loading: true, saving: false, deleting: false, deletingText: '', syncingCname: '', cnameStatusWarning: false, providerMeta: null }
+    return { records: [], selectedRecords: [], selectionResetKey: 0, notFound: false, editing: null, certEditing: null, showForm: false, showCertForm: false, loading: true, saving: false, deleting: false, deletingText: '', syncingCname: '', cnameStatusWarning: false, providerMeta: null, loadRequestToken: 0 }
   },
   computed: {
     decodedZoneName() { return decodeURIComponent(this.zoneName) },
@@ -38,27 +39,33 @@ export default {
       this.load()
     },
     async load(options = {}) {
+      const requestToken = this.loadRequestToken + 1
+      this.loadRequestToken = requestToken
       this.loading = true
       try {
         this.notFound = false
         if (!this.providerMeta) {
           const providers = await loadProviders()
+          if (requestToken !== this.loadRequestToken) return
           this.providerMeta = providers.find((p) => p.id === this.provider) || null
         }
+        if (requestToken !== this.loadRequestToken) return
         const records = await edgeOneApi.accelerationDomains(this.provider, this.decodedZoneName, options)
+        if (requestToken !== this.loadRequestToken) return
         this.records = records.data
         this.cnameStatusWarning = records.data.some((record) => record.cname_status_error)
         if (options.refresh) message.success('已刷新')
       } catch (error) {
+        if (requestToken !== this.loadRequestToken) return
         if (Number(error.status) === 404 || error.code === 'edgeone_zone_not_found') {
           this.records = []
           this.notFound = true
           return
         }
 
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
-        this.loading = false
+        if (requestToken === this.loadRequestToken) this.loading = false
       }
     },
     edit(record) { this.editing = { ...record }; this.showForm = true },
@@ -74,11 +81,13 @@ export default {
         } else {
           const { autoSync, ...payload } = form
           const result = await edgeOneApi.createAccelerationDomain(this.provider, this.decodedZoneName, payload, { autoSync })
-          const sync = result?.data?.dns_record
-          if (autoSync && sync && sync.synced === false) {
+          const sync = result?.data?.side_effects?.dns?.sync
+          if (autoSync && sync && sync.status === 'failed') {
             message.warning(`加速域名已添加，CNAME 同步失败：${sync.message || '-'}`)
+          } else if (autoSync && sync && sync.status === 'skipped') {
+            message.warning(`加速域名已添加，CNAME 稍后需处理：${sync.message || '-'}`)
           } else if (autoSync && sync) {
-            message.success(this.dnsSyncMessage(sync))
+            message.success(sync.message || 'CNAME 已同步')
           } else {
             message.success('加速域名已添加')
           }
@@ -86,7 +95,7 @@ export default {
         this.showForm = false
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -100,7 +109,7 @@ export default {
         this.showCertForm = false
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -153,11 +162,11 @@ export default {
       this.deleting = true
       try {
         const response = await edgeOneApi.deleteAccelerationDomain(this.provider, this.decodedZoneName, record.name)
-        const cleaned = Number(response?.data?.dns_cleanup?.cleaned || 0)
+        const cleaned = Number(response?.data?.side_effects?.dns?.cleanup?.details?.cleaned || 0)
         message.success(cleaned > 0 ? '已删除，DNSPod CNAME 已清理' : '已删除')
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.deleting = false
         this.deletingText = ''
@@ -170,7 +179,7 @@ export default {
         message.success(status === 'offline' ? '已停用' : '已启用')
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.deleting = false
       }
@@ -179,16 +188,13 @@ export default {
       this.syncingCname = record.name
       try {
         const response = await edgeOneApi.syncAccelerationDomainCname(this.provider, this.decodedZoneName, record.name)
-        message.success(this.dnsSyncMessage(response.data))
+        message.success(response.data?.side_effects?.dns?.sync?.message || 'CNAME 已同步')
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.syncingCname = ''
       }
-    },
-    dnsSyncMessage(result = {}) {
-      return result.message || 'CNAME 已同步'
     },
     async batchRemove() {
       this.deleting = true
@@ -208,7 +214,7 @@ export default {
         this.selectedRecords = []
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.deleting = false
         this.deletingText = ''

@@ -16,7 +16,7 @@ use TencentCloud\Dnspod\V20210323\Models\DescribeRecordListRequest;
 use TencentCloud\Dnspod\V20210323\Models\ModifyRecordRequest;
 use TencentCloud\Dnspod\V20210323\Models\RecordListItem;
 
-class DnsPodRecordService
+class DnsPodRecordGateway
 {
     use ProviderServiceConcern;
     use PaginationMeta;

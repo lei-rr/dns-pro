@@ -3,6 +3,7 @@ import { systemRouteIds, systemRoutes } from './modules/system/routes.js'
 import { authApi } from './modules/system/api/auth.js'
 import { loadProviders } from './providers/store.js'
 import { message } from './shared/plugins/antDesignVue.js'
+import { errorMessage } from './shared/utils/errors.js'
 import { resolveChildRoute, resolveEntryRoute } from './routes/utils.js'
 
 const { createRouter, createWebHashHistory } = VueRouter
@@ -38,7 +39,7 @@ router.beforeEach(async (to) => {
     message.warning('该 DNS 服务商未配置或不可用')
     return '/'
   } catch (error) {
-    message.error(error.message)
+    message.error(errorMessage(error))
     return '/'
   }
 })

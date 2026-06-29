@@ -200,6 +200,47 @@ class HostnameSyncService
         ];
     }
 
+    /**
+     * hostname 编辑后，把 DNSPod 中旧的关联记录删掉，再同步新的目标记录。
+     *
+     * @param array<int, array<string, mixed>> $beforeRecords 编辑前 collectRecordsFor() 收集到的旧记录
+     */
+    public function resyncAfterUpdate(string $providerId, string $cfZoneName, string $hostnameFqdn, array $beforeRecords): array
+    {
+        $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameFqdn, true);
+        $fqdn = $this->requireFqdn($hostname);
+
+        $dnspodProviderId = $this->support->lookupDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
+        if ($dnspodProviderId === '') {
+            return ['cleaned' => 0, 'records' => [], 'deleted' => [], 'reason' => 'dnspod_provider_missing'];
+        }
+
+        try {
+            $dnspodZone = $this->support->resolveDnspodZone($dnspodProviderId, $fqdn, self::PROVIDER_TYPE);
+        } catch (ApiException) {
+            return ['cleaned' => 0, 'records' => [], 'deleted' => [], 'reason' => 'dnspod_zone_not_found'];
+        }
+
+        $afterRecords = $this->collectRecords($hostname, $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname));
+        $deleted = $this->deleteMissingRecords($dnspodProviderId, $dnspodZone, $beforeRecords, $afterRecords);
+        $precleaned = $afterRecords === []
+            ? []
+            : $this->support->precleanConflicts($dnspodProviderId, $dnspodZone, $fqdn);
+        $results = array_map(
+            fn (array $rec) => $this->withPurpose($rec, $this->dnspodSync->sync($dnspodProviderId, $dnspodZone, $rec)),
+            $afterRecords,
+        );
+
+        return [
+            'hostname' => $fqdn,
+            'dnspod_zone' => $dnspodZone,
+            'cleaned' => count(array_filter($deleted, static fn (array $r) => ($r['status'] ?? '') === 'deleted')),
+            'deleted' => $deleted,
+            'precleaned' => $precleaned,
+            'records' => $results,
+        ];
+    }
+
     // ---------- 内部 ----------
 
     private function requireFqdn(array $hostname): string
@@ -327,5 +368,52 @@ class HostnameSyncService
     private function withPurpose(array $record, array $result): array
     {
         return ['purpose' => $record['purpose']] + $result;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $beforeRecords
+     * @param array<int, array<string, mixed>> $afterRecords
+     * @return array<int, array<string, mixed>>
+     */
+    private function deleteMissingRecords(string $dnspodProviderId, string $dnspodZone, array $beforeRecords, array $afterRecords): array
+    {
+        $afterMap = [];
+        foreach ($afterRecords as $record) {
+            if (!is_array($record)) {
+                continue;
+            }
+            $afterMap[$this->recordSignature($record)] = true;
+        }
+
+        $deleted = [];
+        $seen = [];
+        foreach ($beforeRecords as $record) {
+            if (!is_array($record)) {
+                continue;
+            }
+
+            $signature = $this->recordSignature($record);
+            if ($signature === '' || isset($seen[$signature]) || isset($afterMap[$signature])) {
+                continue;
+            }
+            $seen[$signature] = true;
+            $deleted[] = $this->withPurpose($record, $this->dnspodSync->delete($dnspodProviderId, $dnspodZone, $record));
+        }
+
+        return $deleted;
+    }
+
+    private function recordSignature(array $record): string
+    {
+        $type = strtoupper(trim((string) ($record['type'] ?? '')));
+        $name = strtolower(rtrim(trim((string) ($record['name'] ?? '')), '.'));
+        $value = strtolower(rtrim(trim((string) ($record['value'] ?? '')), '.'));
+        $line = trim((string) ($record['line'] ?? self::DEFAULT_LINE));
+
+        if ($type === '' || $name === '' || $value === '') {
+            return '';
+        }
+
+        return implode('|', [$type, $name, $value, $line]);
     }
 }

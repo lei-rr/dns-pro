@@ -20,6 +20,7 @@ export const hostnameApi = {
   hostname: async (provider, zone, hostname, options = {}) => unwrapItems(await http.get(endpoints.hostname(provider, zone, hostname), withRefresh({ params: options, refresh: options?.refresh }))),
   refreshHostname: (provider, zone, hostname) => http.post(endpoints.refreshHostname(provider, zone, hostname)),
   createHostname: (provider, zone, data, options = {}) => http.post(endpoints.createHostname(provider, zone), data, options.autoSync ? { params: { auto_sync: 1 } } : {}),
+  updateHostname: (provider, zone, hostname, data, options = {}) => http.put(endpoints.hostname(provider, zone, hostname), data, options.autoSync ? { params: { auto_sync: 1 } } : {}),
   deleteHostname: (provider, zone, hostname, options = {}) => http.delete(endpoints.hostname(provider, zone, hostname), options.skipCleanup ? { params: { auto_cleanup: 0 } } : {}),
   // zone 级 fallback origin(SSL for SaaS 默认源服务器)
   fallbackOrigin: (provider, zone, options = {}) => http.get(endpoints.fallbackOrigin(provider, zone), withRefresh({ refresh: options?.refresh })),

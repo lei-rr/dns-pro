@@ -15,6 +15,7 @@ use think\Validate;
  *   - show             GET  /hostnames/:id               refresh
  *                      GET  /fallback-origin             refresh
  *   - store            POST /hostnames                   hostname / method / min_tls_version / custom_origin_server
+ *   - update           PUT  /hostnames/:id               method / min_tls_version / custom_origin_server / preferred_domain
  *   - fallbackOrigin   PUT  /fallback-origin             origin
  */
 class HostnameValidate extends Validate
@@ -63,6 +64,14 @@ class HostnameValidate extends Validate
     public function sceneStore(): self
     {
         return $this->only(['hostname', 'custom_origin_server', 'method', 'min_tls_version', 'preferred_domain'])
+            ->remove('custom_origin_server', 'require')
+            ->remove('method', 'require')
+            ->remove('min_tls_version', 'require');
+    }
+
+    public function sceneUpdate(): self
+    {
+        return $this->only(['custom_origin_server', 'method', 'min_tls_version', 'preferred_domain'])
             ->remove('custom_origin_server', 'require')
             ->remove('method', 'require')
             ->remove('min_tls_version', 'require');

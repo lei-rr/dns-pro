@@ -11,8 +11,8 @@ use app\validate\ProviderNormalizer;
 /**
  * Provider 业务编排
  *
- * 把"用户操作"翻译成对 ProviderRepository 的整体读 → 修改 → 整体写。
- * 缓存级联失效由 ProviderRepository::saveAll 内部处理，本服务专注业务校验/编排。
+ * 把"用户操作"翻译成对 ProviderRepository 的持锁事务更新。
+ * 缓存级联失效由 ProviderRepository 内部处理，本服务专注业务校验/编排。
  */
 class ProviderService
 {
@@ -39,55 +39,56 @@ class ProviderService
 
     public function create(array $data): array
     {
-        $providers = $this->providers->rawAll();
         $definition = $this->definitionFor($data['type'] ?? '');
         $normalized = $this->normalizer->normalize($data, $definition);
 
-        if ($this->existsId($providers, $normalized['id'])) {
-            throw new ApiException('Provider already exists', 409, 'provider_exists');
-        }
+        $this->providers->mutateAll(function (array $providers) use ($normalized): array {
+            if ($this->existsId($providers, $normalized['id'])) {
+                throw new ApiException('Provider already exists', 409, 'provider_exists');
+            }
 
-        $providers[] = $normalized;
-        $this->providers->saveAll($providers);
+            $providers[] = $normalized;
+            return $providers;
+        });
 
         return $this->providers->present($normalized);
     }
 
     public function update(string $id, array $data): array
     {
-        $providers = $this->providers->rawAll();
-        $index = $this->locate($providers, $id);
-        $current = $providers[$index];
+        $updated = null;
 
-        if (array_key_exists('type', $data) && $data['type'] !== '' && $data['type'] !== ($current['type'] ?? '')) {
-            throw new ApiException('Provider type cannot be changed', 422, 'provider_type_immutable');
-        }
+        $this->providers->mutateAll(function (array $providers) use ($id, $data, &$updated): array {
+            $index = $this->locate($providers, $id);
+            $current = $providers[$index];
 
-        $merged = array_merge(
-            $current,
-            array_filter($data, static fn (mixed $v) => $v !== '' && $v !== null),
-            ['id' => $id],
-        );
+            if (array_key_exists('type', $data) && $data['type'] !== '' && $data['type'] !== ($current['type'] ?? '')) {
+                throw new ApiException('Provider type cannot be changed', 422, 'provider_type_immutable');
+            }
 
-        $definition = $this->definitionFor($merged['type'] ?? '');
-        $providers[$index] = $this->normalizer->normalize($merged, $definition);
+            $definition = $this->definitionFor((string) ($current['type'] ?? ''));
+            $merged = $this->mergeUpdatePayload($current, $data, $definition);
+            $updated = $this->normalizer->normalize($merged, $definition);
+            $providers[$index] = $updated;
 
-        $this->providers->saveAll($providers);
+            return $providers;
+        });
 
-        return $this->providers->present($providers[$index]);
+        return $this->providers->present($updated ?? []);
     }
 
     public function delete(string $id): void
     {
-        $providers = $this->providers->rawAll();
-        $this->checkProviderNotInUse($id, $providers);
+        $this->providers->mutateAll(function (array $providers) use ($id): array {
+            $this->checkProviderNotInUse($id, $providers);
 
-        $next = array_values(array_filter($providers, static fn (array $p) => ($p['id'] ?? '') !== $id));
-        if (count($next) === count($providers)) {
-            throw new ApiException('Provider not found', 404, 'provider_not_found');
-        }
+            $next = array_values(array_filter($providers, static fn (array $p) => ($p['id'] ?? '') !== $id));
+            if (count($next) === count($providers)) {
+                throw new ApiException('Provider not found', 404, 'provider_not_found');
+            }
 
-        $this->providers->saveAll($next);
+            return $next;
+        });
     }
 
     /**
@@ -98,14 +99,12 @@ class ProviderService
     public function sort(array $ids): array
     {
         $ids = array_values(array_map(static fn (mixed $v) => trim((string) $v), $ids));
-        $providers = $this->providers->rawAll();
+        $ordered = $this->providers->mutateAll(function (array $providers) use ($ids): array {
+            $this->validateSortOrder($ids, $providers);
 
-        $this->validateSortOrder($ids, $providers);
-
-        $byId = $this->indexById($providers);
-        $ordered = array_values(array_map(static fn (string $id) => $byId[$id], $ids));
-
-        $this->providers->saveAll($ordered);
+            $byId = $this->indexById($providers);
+            return array_values(array_map(static fn (string $id) => $byId[$id], $ids));
+        });
 
         return array_map(fn (array $p) => $this->providers->present($p), $ordered);
     }
@@ -129,6 +128,7 @@ class ProviderService
      *   - EdgeOne.dnspod_provider 引用了 DNSPod
      *   - Hostname.cloudflare_provider 引用了 Cloudflare
      *   - Hostname.dnspod_provider 引用了 DNSPod
+     *   - Cloudflared.cloudflare_provider 引用了 Cloudflare
      */
     private function checkProviderNotInUse(string $id, array $providers): void
     {
@@ -138,6 +138,7 @@ class ProviderService
                 $type === 'edgeone' && ($provider['dnspod_provider'] ?? '') === $id => 'EdgeOne',
                 $type === 'hostname' && ($provider['cloudflare_provider'] ?? '') === $id => 'Hostname',
                 $type === 'hostname' && ($provider['dnspod_provider'] ?? '') === $id => 'Hostname',
+                $type === 'cloudflared' && ($provider['cloudflare_provider'] ?? '') === $id => 'Cloudflare Tunnel',
                 default => null,
             };
 
@@ -200,5 +201,36 @@ class ProviderService
         }
 
         return $map;
+    }
+
+    private function mergeUpdatePayload(array $current, array $data, array $definition): array
+    {
+        $merged = $current;
+        $merged['id'] = $current['id'] ?? '';
+        $merged['type'] = $current['type'] ?? '';
+
+        if (array_key_exists('name', $data)) {
+            $merged['name'] = $data['name'];
+        }
+
+        $secretFields = array_fill_keys($definition['secret_fields'] ?? [], true);
+        foreach ($definition['fields'] ?? [] as $field) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+
+            $value = $data[$field];
+            if ($value === null) {
+                continue;
+            }
+
+            if (($secretFields[$field] ?? false) === true && $value === '') {
+                continue;
+            }
+
+            $merged[$field] = $value;
+        }
+
+        return $merged;
     }
 }

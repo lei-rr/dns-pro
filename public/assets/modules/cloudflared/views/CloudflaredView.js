@@ -2,6 +2,7 @@ import { cloudflaredApi } from '../utils/api.js'
 import { statusLabel, statusColor } from '../utils/format.js'
 import { providerChildPath } from '../../../routes/paths.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 import TunnelCreateModal from '../components/TunnelCreateModal.js'
 
 export default {
@@ -13,6 +14,7 @@ export default {
       loading: true,
       creating: false,
       showCreate: false,
+      loadRequestToken: 0,
     }
   },
   computed: {
@@ -31,7 +33,7 @@ export default {
     await this.load()
   },
   watch: {
-    provider() { this.tunnels = []; this.load() },
+    provider() { this.tunnels = []; this.showCreate = false; this.load() },
   },
   methods: {
     statusLabel,
@@ -39,15 +41,19 @@ export default {
     detailPath(tunnel) { return providerChildPath(this.provider, tunnel.id) },
 
     async load(options = {}) {
+      const requestToken = this.loadRequestToken + 1
+      this.loadRequestToken = requestToken
       this.loading = true
       try {
         const response = await cloudflaredApi.tunnels(this.provider, options)
+        if (requestToken !== this.loadRequestToken) return
         this.tunnels = response.data || []
         if (options.refresh) message.success('已刷新')
       } catch (error) {
-        message.error(error.message)
+        if (requestToken !== this.loadRequestToken) return
+        message.error(errorMessage(error))
       } finally {
-        this.loading = false
+        if (requestToken === this.loadRequestToken) this.loading = false
       }
     },
 
@@ -63,7 +69,7 @@ export default {
         // 跳转到详情页
         this.$router.push(this.detailPath(tunnel))
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.creating = false
       }
@@ -84,7 +90,7 @@ export default {
         message.success('已删除')
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       }
     },
 

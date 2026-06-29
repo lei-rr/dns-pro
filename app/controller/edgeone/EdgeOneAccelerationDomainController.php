@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace app\controller\edgeone;
 
 use app\controller\concerns\ResolvesQueryParams;
+use app\controller\concerns\ValidatesInput;
 use app\service\edgeone\EdgeOneService;
+use app\service\edgeone\EdgeOneWorkflowService;
 use app\support\ApiResponse;
 use app\validate\EdgeOneRecordValidate;
 use think\Response;
@@ -13,14 +15,17 @@ use think\Response;
 class EdgeOneAccelerationDomainController
 {
     use ResolvesQueryParams;
+    use ValidatesInput;
 
-    public function __construct(private readonly EdgeOneService $edgeone)
-    {
+    public function __construct(
+        private readonly EdgeOneService $edgeone,
+        private readonly EdgeOneWorkflowService $workflow,
+    ) {
     }
 
     public function zoneRecords(string $providerId, string $zoneName): Response
     {
-        $filters = validate(EdgeOneRecordValidate::class)->scene('index')->checked(input('get.', []));
+        $filters = $this->queryInput(EdgeOneRecordValidate::class, 'index');
 
         return ApiResponse::data(
             $this->edgeone->accelerationDomains($providerId, $this->zoneId($providerId, $zoneName), $filters),
@@ -29,10 +34,10 @@ class EdgeOneAccelerationDomainController
 
     public function storeZoneRecord(string $providerId, string $zoneName): Response
     {
-        $data = validate(EdgeOneRecordValidate::class)->scene('record')->checked(input('post.', []));
+        $data = $this->postInput(EdgeOneRecordValidate::class, 'record');
 
         return ApiResponse::data(
-            $this->edgeone->createAccelerationDomain(
+            $this->workflow->createAccelerationDomain(
                 $providerId,
                 $this->zoneId($providerId, $zoneName),
                 $data,
@@ -44,7 +49,7 @@ class EdgeOneAccelerationDomainController
 
     public function updateZoneRecord(string $providerId, string $zoneName, string $domainName): Response
     {
-        $data = validate(EdgeOneRecordValidate::class)->scene('updateRecord')->checked(input('put.', []));
+        $data = $this->putInput(EdgeOneRecordValidate::class, 'updateRecord');
 
         return ApiResponse::data(
             $this->edgeone->updateAccelerationDomain($providerId, $this->zoneId($providerId, $zoneName), $domainName, $data),
@@ -54,7 +59,7 @@ class EdgeOneAccelerationDomainController
     public function deleteZoneRecord(string $providerId, string $zoneName, string $domainName): Response
     {
         return ApiResponse::data(
-            $this->edgeone->deleteAccelerationDomain(
+            $this->workflow->deleteAccelerationDomain(
                 $providerId,
                 $this->zoneId($providerId, $zoneName),
                 $domainName,
@@ -65,7 +70,7 @@ class EdgeOneAccelerationDomainController
 
     public function updateZoneRecordStatus(string $providerId, string $zoneName, string $domainName): Response
     {
-        $data = validate(EdgeOneRecordValidate::class)->scene('status')->checked(input('put.', []));
+        $data = $this->putInput(EdgeOneRecordValidate::class, 'status');
 
         return ApiResponse::data(
             $this->edgeone->updateAccelerationDomainStatus(
@@ -80,13 +85,13 @@ class EdgeOneAccelerationDomainController
     public function syncZoneRecordCname(string $providerId, string $zoneName, string $domainName): Response
     {
         return ApiResponse::data(
-            $this->edgeone->syncCname($providerId, $this->zoneId($providerId, $zoneName), $domainName),
+            $this->workflow->syncCname($providerId, $this->zoneId($providerId, $zoneName), $domainName),
         );
     }
 
     public function updateZoneRecordCertificate(string $providerId, string $zoneName, string $domainName): Response
     {
-        $data = validate(EdgeOneRecordValidate::class)->scene('certificate')->checked(input('put.', []));
+        $data = $this->putInput(EdgeOneRecordValidate::class, 'certificate');
 
         return ApiResponse::data(
             $this->edgeone->updateCertificate($providerId, $this->zoneId($providerId, $zoneName), $domainName, $data),

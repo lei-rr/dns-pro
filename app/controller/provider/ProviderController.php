@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace app\controller\provider;
 
+use app\controller\concerns\ValidatesInput;
 use app\exception\ApiException;
 use app\service\provider\ProviderService;
 use app\support\ApiResponse;
@@ -12,6 +13,8 @@ use think\Response;
 
 class ProviderController
 {
+    use ValidatesInput;
+
     public function __construct(private readonly ProviderService $providers)
     {
     }
@@ -39,25 +42,14 @@ class ProviderController
 
     public function store(): Response
     {
-        validate(ProviderValidate::class)
-            ->scene('store')
-            ->check(input('post.', []));
-
-        // checked() 只返回规则声明字段，会丢弃类型专属字段（如 cloudflare_provider）；
-        // 这里用原始 input 交给 service，由 ProviderNormalizer 按 definition 取字段并校验。
-        $provider = $this->providers->create(input('post.', []));
+        $provider = $this->providers->create($this->rawPostInput(ProviderValidate::class, 'store'));
 
         return ApiResponse::data($provider, 201);
     }
 
     public function update(string $id): Response
     {
-        validate(ProviderValidate::class)
-            ->scene('update')
-            ->check(input('put.', []));
-
-        // 同 store：用原始 input，避免 checked() 丢弃类型专属字段
-        $provider = $this->providers->update($id, input('put.', []));
+        $provider = $this->providers->update($id, $this->rawPutInput(ProviderValidate::class, 'update'));
 
         return ApiResponse::data($provider);
     }
@@ -71,9 +63,7 @@ class ProviderController
 
     public function sort(): Response
     {
-        $input = validate(ProviderValidate::class)
-            ->scene('sort')
-            ->checked(input('put.', []));
+        $input = $this->putInput(ProviderValidate::class, 'sort');
 
         $providers = $this->providers->sort($input['order']);
 

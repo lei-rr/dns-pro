@@ -4,6 +4,7 @@ import { message, modal } from '../../../../shared/plugins/antDesignVue.js'
 import { providerPath } from '../../../../routes/paths.js'
 import { resolveProviderHook } from '../../../../providers/registry.js'
 import { chooseJsonFile, downloadJson } from '../../../../shared/utils/files.js'
+import { errorMessage } from '../../../../shared/utils/errors.js'
 import BatchToolbar from '../../../../shared/components/BatchToolbar.js'
 import RecordForm from '../components/RecordForm.js'
 import RecordTable from '../components/RecordTable.js'
@@ -14,7 +15,7 @@ export default {
   components: { BatchToolbar, RecordForm, RecordTable },
   props: { provider: String, domain: String, providerMeta: Object },
   data() {
-    return { records: [], selectedRecords: [], selectionResetKey: 0, lines: [], currentProviderMeta: this.providerMeta || null, currentDomainName: '', providerHook: defaultProviderHook, editing: null, showForm: false, keyword: '', loading: true, saving: false, deleting: false, deletingText: '' }
+    return { records: [], selectedRecords: [], selectionResetKey: 0, lines: [], currentProviderMeta: this.providerMeta || null, currentDomainName: '', providerHook: defaultProviderHook, editing: null, showForm: false, keyword: '', loading: true, saving: false, deleting: false, deletingText: '', loadRequestToken: 0 }
   },
   computed: {
     decodedDomain() { return decodeURIComponent(this.domain) },
@@ -49,25 +50,31 @@ export default {
       this.load()
     },
     async load(options = {}) {
+      const requestToken = this.loadRequestToken + 1
+      this.loadRequestToken = requestToken
       this.loading = true
       try {
         if (!this.currentProviderMeta) {
           const providers = await loadProviders()
+          if (requestToken !== this.loadRequestToken) return
           this.currentProviderMeta = providers.find((provider) => provider.id === this.provider) || null
         }
+        if (requestToken !== this.loadRequestToken) return
         this.currentDomainName = this.decodedDomain
         const records = await dnsApi.records(this.provider, this.recordsTarget, options)
+        if (requestToken !== this.loadRequestToken) return
         this.records = records.data
         this.providerHook = resolveProviderHook(this.providerType)
         this.lines = this.providerHook.recordLines || []
       } catch (error) {
+        if (requestToken !== this.loadRequestToken) return
         if (this.shouldReturnToDomains(error)) {
           await this.returnToDomains()
           return
         }
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
-        this.loading = false
+        if (requestToken === this.loadRequestToken) this.loading = false
       }
     },
     shouldReturnToDomains(error) {
@@ -104,7 +111,7 @@ export default {
         this.showForm = false
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -137,7 +144,7 @@ export default {
         message.success('已删除')
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.deleting = false
         this.deletingText = ''
@@ -176,7 +183,7 @@ export default {
         if (!Array.isArray(records)) throw new Error('导入文件必须是记录数组')
         await this.confirmImport(records)
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       }
     },
     async confirmImport(records) {

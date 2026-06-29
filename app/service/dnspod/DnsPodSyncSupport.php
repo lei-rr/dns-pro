@@ -25,8 +25,8 @@ class DnsPodSyncSupport
 {
     public function __construct(
         private readonly ProviderRepository $providers,
-        private readonly DnsPodZoneService $zones,
-        private readonly DnsPodRecordService $records,
+        private readonly DnsPodZoneGateway $zones,
+        private readonly DnsPodRecordGateway $records,
         private readonly DnsPodRecordSync $recordSync,
     ) {
     }

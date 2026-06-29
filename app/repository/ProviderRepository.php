@@ -17,13 +17,14 @@ use think\facade\Cache;
  *
  * 职责：
  *   - 读：rawAll / find / all / requireType
- *   - 写：saveAll（整体覆盖）→ 自动失效自身及级联引用方的 API 缓存
+ *   - 写：mutateAll / saveAll（整体覆盖）→ 自动失效自身及级联引用方的 API 缓存
  *   - 呈现：present / all 根据 config/providers.php 隐藏 secret、计算 configured/fields/editable_fields
  *
  * 跨 provider 引用关系（被引用 → 引用方字段）：
  *   dnspod     ← edgeone.dnspod_provider
  *   dnspod     ← hostname.dnspod_provider
  *   cloudflare ← hostname.cloudflare_provider
+ *   cloudflare ← cloudflared.cloudflare_provider
  */
 class ProviderRepository
 {
@@ -129,11 +130,37 @@ class ProviderRepository
      */
     public function saveAll(array $providers): void
     {
-        $before = $this->rawAll();
-        $items = array_values(array_map(fn (array $p) => $this->normalizeForStorage($p), $providers));
-        $this->store->write(['items' => $items]);
+        $this->mutateAll(static fn (array $_current): array => $providers);
+    }
 
-        $this->invalidateAffected($before, $items);
+    /**
+     * 在同一把文件锁内完成 provider 列表的读改写。
+     *
+     * @param callable(array): array $mutator 接收当前 providers，返回新的 providers 列表
+     * @return array<int, array<string, mixed>> 写入后的 provider 列表
+     */
+    public function mutateAll(callable $mutator): array
+    {
+        $before = [];
+        $after = [];
+
+        $this->store->transaction(function (array $current) use ($mutator, &$before, &$after): array {
+            $items = $current['items'] ?? [];
+            $before = is_array($items) ? array_values($items) : [];
+
+            $next = $mutator($before);
+            if (!is_array($next)) {
+                throw new RuntimeException('Provider mutator must return an array.');
+            }
+
+            $after = array_values(array_map(fn (array $p) => $this->normalizeForStorage($p), $next));
+
+            return ['items' => $after];
+        });
+
+        $this->invalidateAffected($before, $after);
+
+        return $after;
     }
 
     // ---------- presentation ----------

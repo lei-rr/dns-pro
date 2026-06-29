@@ -1,5 +1,6 @@
 import { providerSettingsApi } from '../api/providers.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 
 export default {
   data() {
@@ -35,7 +36,7 @@ export default {
         this.providers = (await providerSettingsApi.providers()).data
         this.notifyProvidersUpdated()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.loading = false
       }
@@ -129,7 +130,7 @@ export default {
         this.notifyProvidersUpdated()
       } catch (error) {
         this.providers = previous
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.sortSaving = false
         this.draggingProvider = ''
@@ -180,7 +181,7 @@ export default {
         this.creating = false
         await this.load()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -190,8 +191,7 @@ export default {
       this.saving = true
       try {
         const payload = Object.fromEntries(this.editing.editable_fields
-          .map((field) => [field, this.form[field]])
-          .filter(([, value]) => String(value || '').trim() !== ''))
+          .map((field) => [field, String(this.form[field] ?? '').trim()]))
         if (!Object.keys(payload).length) {
           message.warning('请输入要更新的配置')
           return
@@ -201,7 +201,7 @@ export default {
         this.editing = null
         await this.load()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -229,7 +229,7 @@ export default {
         message.success('服务商配置已删除')
         await this.load()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.providerOperation = null
       }

@@ -1,6 +1,7 @@
 import { loadProviders, useProviderStore } from '../providers/store.js'
 import { resolveChildRoute, resolveEntryRoute } from './utils.js'
 import { message } from '../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../shared/utils/errors.js'
 
 function routeView(child = false) {
   return {
@@ -38,7 +39,7 @@ function routeView(child = false) {
         try {
           await loadProviders()
         } catch (error) {
-          message.error(error.message)
+          message.error(errorMessage(error))
         }
       },
     },

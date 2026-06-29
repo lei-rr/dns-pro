@@ -3,6 +3,7 @@ import { statusColor, statusLabel, formatDate } from '../utils/hostname.js'
 import { loadProviders } from '../../../providers/store.js'
 import { providerPath } from '../../../routes/paths.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 import { tablePagination } from '../../../shared/utils/pagination.js'
 import HostnameCreateModal from '../components/HostnameCreateModal.js'
 import HostnameDetailModal from '../components/HostnameDetailModal.js'
@@ -18,7 +19,13 @@ export default {
       loading: true,
       notFound: false,
       creating: false,
+      editingHostname: null,
+      savingEdit: false,
       deleting: false,
+      detailLoading: false,
+      detailRequestToken: 0,
+      listLoadRequestToken: 0,
+      preferredLoadRequestToken: 0,
       refreshing: {},
       providerMeta: null,
       selectedHostname: null,
@@ -63,8 +70,8 @@ export default {
   },
   async mounted() { await this.load(); this.loadPreferredDomains() },
   watch: {
-    provider() { this.providerMeta = null; this.load(); this.loadPreferredDomains() },
-    zoneName() { this.load() },
+    provider() { this.resetContextState(); this.providerMeta = null; this.load(); this.loadPreferredDomains() },
+    zoneName() { this.resetContextState(); this.load() },
   },
   methods: {
     statusColor,
@@ -75,33 +82,53 @@ export default {
       return (String(hostname || '').match(/[a-z0-9]/i)?.[0] || '#').toUpperCase()
     },
 
+    resetContextState() {
+      this.showCreateForm = false
+      this.showDetails = false
+      this.showFallbackOrigin = false
+      this.editingHostname = null
+      this.selectedHostname = null
+      this.handleDetailsOpenChange(false)
+    },
+
     async load(options = {}) {
+      const requestToken = this.listLoadRequestToken + 1
+      this.listLoadRequestToken = requestToken
       this.loading = true
       try {
         this.notFound = false
         if (!this.providerMeta) {
           const providers = await loadProviders()
+          if (requestToken !== this.listLoadRequestToken) return
           this.providerMeta = providers.find((p) => p.id === this.provider) || null
         }
+        if (requestToken !== this.listLoadRequestToken) return
         const response = await hostnameApi.hostnames(this.provider, this.decodedZoneName, { page: 1, per_page: 100, ...options })
+        if (requestToken !== this.listLoadRequestToken) return
         this.hostnames = response.data
+        this.syncSelectedHostnameFromList()
       } catch (error) {
+        if (requestToken !== this.listLoadRequestToken) return
         if (Number(error.status) === 404 || error.code === 'cloudflare_zone_not_found') {
           this.hostnames = []
           this.notFound = true
           return
         }
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
-        this.loading = false
+        if (requestToken === this.listLoadRequestToken) this.loading = false
       }
     },
 
     async loadPreferredDomains() {
+      const requestToken = this.preferredLoadRequestToken + 1
+      this.preferredLoadRequestToken = requestToken
       try {
         const response = await preferredDomainApi.list()
+        if (requestToken !== this.preferredLoadRequestToken) return
         this.preferredDomains = response.data || []
       } catch (error) {
+        if (requestToken !== this.preferredLoadRequestToken) return
         // 静默失败：不阻塞主流程，下拉为空即可
         this.preferredDomains = []
       }
@@ -123,7 +150,7 @@ export default {
     },
 
     // ----- 创建 -----
-    openCreate() { this.showCreateForm = true },
+    openCreate() { this.editingHostname = null; this.showCreateForm = true },
     async create(formData) {
       this.creating = true
       try {
@@ -152,9 +179,51 @@ export default {
         this.showDetails = true
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.creating = false
+      }
+    },
+
+    openEdit(record) {
+      this.handleDetailsOpenChange(false)
+      this.editingHostname = record
+      this.showCreateForm = true
+    },
+    async update(formData) {
+      if (!this.editingHostname?.hostname) return
+
+      this.savingEdit = true
+      try {
+        const payload = {
+          method: String(formData.method || 'txt').trim(),
+          min_tls_version: String(formData.min_tls_version || '1.0').trim(),
+          custom_origin_server: formData.use_custom_origin_server
+            ? String(formData.custom_origin_server || '').trim()
+            : '',
+          preferred_domain: String(formData.preferred_domain || '').trim(),
+        }
+
+        const options = { autoSync: formData.autoSync && this.dnspodLinked }
+        const response = await hostnameApi.updateHostname(
+          this.provider,
+          this.decodedZoneName,
+          this.editingHostname.hostname,
+          payload,
+          options,
+        )
+        message.success('自定义主机名已更新')
+        this.showCreateForm = false
+        this.editingHostname = null
+        this.mergeHostnameRecord(response.data)
+        if (this.showDetails && this.selectedHostname?.id === response.data?.id) {
+          this.selectedHostname = response.data
+        }
+        await this.load({ refresh: true })
+      } catch (error) {
+        message.error(errorMessage(error))
+      } finally {
+        this.savingEdit = false
       }
     },
 
@@ -162,12 +231,25 @@ export default {
     async openDetails(record) {
       // 详情走缓存，避免每次都拉 Cloudflare API（zone idByName + show）
       // 用户主动需要最新数据时点"刷新状态"
+      const requestToken = this.detailRequestToken + 1
+      this.detailRequestToken = requestToken
+      this.selectedHostname = {
+        ...record,
+        ssl: { ...(record?.ssl || {}) },
+      }
+      this.showDetails = true
+      this.detailLoading = true
+
       try {
         const response = await hostnameApi.hostname(this.provider, this.decodedZoneName, record.hostname)
+        if (requestToken !== this.detailRequestToken) return
         this.selectedHostname = response.data
-        this.showDetails = true
+        this.mergeHostnameRecord(response.data)
       } catch (error) {
-        message.error(error.message)
+        if (requestToken !== this.detailRequestToken) return
+        message.error(errorMessage(error))
+      } finally {
+        if (requestToken === this.detailRequestToken) this.detailLoading = false
       }
     },
     async refreshHostname(record) {
@@ -179,10 +261,10 @@ export default {
         if (this.showDetails && this.selectedHostname?.id === record.id) {
           this.selectedHostname = response.data
         }
-        const cleaned = Number(response.data?.dns_cleanup?.cleaned || 0)
+        const cleaned = Number(response.data?.side_effects?.dns?.cleanup?.details?.cleaned || 0)
         message.success(cleaned > 0 ? '已刷新,已自动清理TXT验证' : '已刷新')
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.refreshing = { ...this.refreshing, [record.id]: false }
       }
@@ -208,7 +290,7 @@ export default {
         }
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.deleting = false
       }
@@ -218,6 +300,31 @@ export default {
       if (!updated?.id) return
       const index = this.hostnames.findIndex((item) => item.id === updated.id)
       if (index >= 0) this.hostnames.splice(index, 1, { ...this.hostnames[index], ...updated })
+    },
+
+    syncSelectedHostnameFromList() {
+      if (!this.selectedHostname) return
+      const selectedId = this.selectedHostname.id
+      const selectedName = String(this.selectedHostname.hostname || '').toLowerCase()
+      const updated = this.hostnames.find((item) => (
+        (selectedId && item.id === selectedId)
+        || String(item.hostname || '').toLowerCase() === selectedName
+      ))
+      if (!updated) return
+
+      this.selectedHostname = {
+        ...this.selectedHostname,
+        ...updated,
+        ssl: { ...(this.selectedHostname.ssl || {}), ...(updated.ssl || {}) },
+      }
+    },
+
+    handleDetailsOpenChange(open) {
+      this.showDetails = open
+      if (!open) {
+        this.detailRequestToken += 1
+        this.detailLoading = false
+      }
     },
   },
   template: `
@@ -282,6 +389,7 @@ export default {
                 <a-button type="link" size="small">更多</a-button>
                 <template #overlay>
                   <a-menu>
+                    <a-menu-item @click="openEdit(record)">编辑</a-menu-item>
                     <a-menu-item danger @click="askDelete(record)">删除</a-menu-item>
                   </a-menu>
                 </template>
@@ -292,17 +400,25 @@ export default {
       </a-table>
 
       <hostname-create-modal
-        v-model:open="showCreateForm"
-        :confirm-loading="creating"
+        :open="showCreateForm"
+        :title="editingHostname ? '编辑自定义主机名' : '新增自定义主机名'"
+        :ok-text="editingHostname ? '保存' : '创建'"
+        :confirm-loading="editingHostname ? savingEdit : creating"
         :dnspod-linked="dnspodLinked"
         :origin-suggestions="originSuggestions"
         :preferred-domains="preferredDomains"
-        @submit="create"
+        :initial-value="editingHostname"
+        :editing="!!editingHostname"
+        @update:open="value => { showCreateForm = value; if (!value) editingHostname = null }"
+        @submit="editingHostname ? update($event) : create($event)"
       />
       <hostname-detail-modal
-        v-model:open="showDetails"
+        :open="showDetails"
         :hostname="selectedHostname"
+        :loading="detailLoading"
         :refreshing="refreshing[selectedHostname?.id] || false"
+        @update:open="handleDetailsOpenChange"
+        @edit="openEdit"
         @refresh="refreshHostname"
       />
       <preferred-domains-modal

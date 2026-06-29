@@ -1,6 +1,7 @@
 import { hostnameApi } from '../utils/api.js'
 import { statusColor, statusLabel } from '../utils/hostname.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 
 /**
  * Zone 级默认回源(fallback origin)管理弹窗
@@ -107,7 +108,7 @@ export default {
         this.currentStatus = data.status || ''
         this.currentErrors = Array.isArray(data.errors) ? data.errors : []
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.loading = false
       }
@@ -129,7 +130,7 @@ export default {
         message.success('默认回源已保存')
         this.$emit('updated', this.currentOrigin)
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -155,7 +156,7 @@ export default {
         this.$emit('updated', '')
         this.$emit('update:open', false)
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.deleting = false
       }

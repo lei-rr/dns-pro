@@ -4,23 +4,24 @@ declare(strict_types=1);
 
 namespace app\controller\dnspod;
 
-use app\service\dnspod\DnsPodZoneService;
+use app\controller\concerns\ValidatesInput;
+use app\service\dnspod\DnsPodZoneGateway;
 use app\support\ApiResponse;
 use app\validate\DnsPodZoneValidate;
 use think\Response;
 
 class DnsPodZoneController
 {
+    use ValidatesInput;
+
     public function __construct(
-        private readonly DnsPodZoneService $zones,
+        private readonly DnsPodZoneGateway $zones,
     ) {
     }
 
     public function index(string $providerId): Response
     {
-        $query = validate(DnsPodZoneValidate::class)
-            ->scene('index')
-            ->checked(input('get.', []));
+        $query = $this->queryInput(DnsPodZoneValidate::class, 'index');
 
         return ApiResponse::data($this->zones->list(
             $providerId,
@@ -33,9 +34,7 @@ class DnsPodZoneController
 
     public function store(string $providerId): Response
     {
-        $data = validate(DnsPodZoneValidate::class)
-            ->scene('store')
-            ->checked(input('post.', []));
+        $data = $this->postInput(DnsPodZoneValidate::class, 'store');
 
         return ApiResponse::data(
             $this->zones->create($providerId, strtolower(trim((string) $data['domain']))),

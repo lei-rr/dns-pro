@@ -1,12 +1,13 @@
 import { edgeOneApi } from '../utils/api.js'
 import { providerChildPath } from '../../../routes/paths.js'
 import { message } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 import { tablePagination } from '../../../shared/utils/pagination.js'
 
 export default {
   props: ['provider'],
   data() {
-    return { zones: [], keyword: '', loading: true }
+    return { zones: [], keyword: '', loading: true, loadRequestToken: 0 }
   },
   computed: {
     filteredZones() {
@@ -38,15 +39,19 @@ export default {
   },
   methods: {
     async load(options = {}) {
+      const requestToken = this.loadRequestToken + 1
+      this.loadRequestToken = requestToken
       this.loading = true
       try {
         const response = await edgeOneApi.zones(this.provider, options)
+        if (requestToken !== this.loadRequestToken) return
         this.zones = response.data
         if (options.refresh) message.success('已刷新')
       } catch (error) {
-        message.error(error.message)
+        if (requestToken !== this.loadRequestToken) return
+        message.error(errorMessage(error))
       } finally {
-        this.loading = false
+        if (requestToken === this.loadRequestToken) this.loading = false
       }
     },
     zoneAvatar(zone) {

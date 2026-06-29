@@ -6,8 +6,8 @@ namespace app\service\hostname;
 
 use app\exception\ApiException;
 use app\repository\ProviderRepository;
-use app\service\cloudflare\CloudflareCustomHostnameService;
-use app\service\cloudflare\CloudflareZoneService;
+use app\service\cloudflare\CloudflareCustomHostnameGateway;
+use app\service\cloudflare\CloudflareZoneGateway;
 
 /**
  * Hostname 业务服务
@@ -26,8 +26,8 @@ class HostnameService
 {
     public function __construct(
         private readonly ProviderRepository $providers,
-        private readonly CloudflareZoneService $cloudflareZones,
-        private readonly CloudflareCustomHostnameService $cloudflareHostnames,
+        private readonly CloudflareZoneGateway $cloudflareZones,
+        private readonly CloudflareCustomHostnameGateway $cloudflareHostnames,
         private readonly PreferredDomainService $preferredDomains,
         private readonly HostnamePreferenceService $preferences,
     ) {
@@ -48,10 +48,30 @@ class HostnameService
     {
         [$cfId, $zoneId] = $this->resolveZone($providerId, $zoneName);
 
+        $previousStatusMap = [];
+        if ($refresh) {
+            try {
+                $cached = $this->cloudflareHostnames->list($cfId, $zoneId, $page, $perPage, false);
+                foreach ($cached['items'] ?? [] as $item) {
+                    $id = (string) ($item['id'] ?? '');
+                    if ($id !== '') {
+                        $previousStatusMap[$id] = (string) ($item['status'] ?? '');
+                    }
+                }
+            } catch (\Throwable) {
+                // ignore: cached list may not exist yet
+            }
+        }
+
         $result = $this->cloudflareHostnames->list($cfId, $zoneId, $page, $perPage, $refresh);
         $preferenceMap = $this->preferences->listByProvider($cfId);
         $result['items'] = array_map(
-            fn (array $h) => $this->mergePreference($h, $preferenceMap[(string) ($h['id'] ?? '')] ?? null),
+            fn (array $h) => $this->mergePreference(
+                $refresh
+                    ? $h + ['previous_status' => $previousStatusMap[(string) ($h['id'] ?? '')] ?? '']
+                    : $h,
+                $preferenceMap[(string) ($h['id'] ?? '')] ?? null,
+            ),
             $result['items'] ?? [],
         );
 
@@ -120,6 +140,20 @@ class HostnameService
             $hostname,
             $hostnameId !== '' ? $this->preferences->get($cfId, $hostnameId) : null,
         );
+    }
+
+    public function updateHostname(string $providerId, string $zoneName, string $hostnameFqdn, array $data): array
+    {
+        [$cfId, $zoneId, $hostnameId] = $this->resolveHostname($providerId, $zoneName, $hostnameFqdn);
+        $preferred = array_key_exists('preferred_domain', $data) ? $this->extractPreferredDomain($data) : null;
+
+        $hostname = $this->cloudflareHostnames->update($cfId, $zoneId, $hostnameId, $data);
+
+        if ($preferred !== null) {
+            $this->preferences->setPreferredDomain($cfId, $hostnameId, $preferred);
+        }
+
+        return $this->mergePreference($hostname, $this->preferences->get($cfId, $hostnameId));
     }
 
     public function deleteHostname(string $providerId, string $zoneName, string $hostnameFqdn): array

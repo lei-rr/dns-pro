@@ -27,6 +27,7 @@ Route::post('hostname/providers/:providerId/zones/:zoneName/hostnames', [Hostnam
 
 // 单个 hostname （详情/删除）
 Route::get('hostname/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn', [HostnameController::class, 'show'])->pattern($hostnamePattern)->completeMatch();
+Route::put('hostname/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn', [HostnameController::class, 'update'])->pattern($hostnamePattern)->completeMatch();
 Route::delete('hostname/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn', [HostnameController::class, 'delete'])->pattern($hostnamePattern)->completeMatch();
 
 // hostname 状态刷新

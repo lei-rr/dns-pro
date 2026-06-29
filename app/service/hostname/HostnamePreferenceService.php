@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace app\service\hostname;
 
-use app\support\JsonStore;
+use app\repository\HostnamePreferenceRepository;
 
 /**
  * Hostname 本地附加属性服务（JSON-backed）
@@ -17,11 +17,11 @@ use app\support\JsonStore;
  */
 class HostnamePreferenceService
 {
-    private readonly JsonStore $store;
+    private readonly HostnamePreferenceRepository $store;
 
-    public function __construct(?JsonStore $store = null)
+    public function __construct(?HostnamePreferenceRepository $store = null)
     {
-        $this->store = $store ?? new JsonStore('hostname/preferences.json', ['items' => []]);
+        $this->store = $store ?? new HostnamePreferenceRepository();
     }
 
     /**

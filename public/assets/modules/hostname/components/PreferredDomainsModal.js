@@ -1,5 +1,6 @@
 import { preferredDomainApi } from '../utils/api.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 
 /**
  * 优选域名管理弹窗
@@ -44,7 +45,7 @@ export default {
         const response = await preferredDomainApi.list()
         this.items = response.data || []
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.loading = false
       }
@@ -70,7 +71,7 @@ export default {
         message.success('已添加')
         this.notifyChange()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -102,7 +103,7 @@ export default {
         this.resetEditing()
         this.notifyChange()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -123,7 +124,7 @@ export default {
         message.success('已删除')
         this.notifyChange()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
       }
@@ -171,7 +172,7 @@ export default {
         this.notifyChange()
       } catch (error) {
         this.items = previous
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.saving = false
         this.draggingDomain = null

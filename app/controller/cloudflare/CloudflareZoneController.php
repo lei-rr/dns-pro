@@ -4,23 +4,24 @@ declare(strict_types=1);
 
 namespace app\controller\cloudflare;
 
-use app\service\cloudflare\CloudflareZoneService;
+use app\controller\concerns\ValidatesInput;
+use app\service\cloudflare\CloudflareZoneGateway;
 use app\support\ApiResponse;
 use app\validate\CloudflareZoneValidate;
 use think\Response;
 
 class CloudflareZoneController
 {
+    use ValidatesInput;
+
     public function __construct(
-        private readonly CloudflareZoneService $zones,
+        private readonly CloudflareZoneGateway $zones,
     ) {
     }
 
     public function index(string $providerId): Response
     {
-        $query = validate(CloudflareZoneValidate::class)
-            ->scene('index')
-            ->checked(input('get.', []));
+        $query = $this->queryInput(CloudflareZoneValidate::class, 'index');
 
         return ApiResponse::data($this->zones->list(
             $providerId,
@@ -33,9 +34,7 @@ class CloudflareZoneController
 
     public function store(string $providerId): Response
     {
-        $data = validate(CloudflareZoneValidate::class)
-            ->scene('store')
-            ->checked(input('post.', []));
+        $data = $this->postInput(CloudflareZoneValidate::class, 'store');
 
         $result = $this->zones->create(
             $providerId,

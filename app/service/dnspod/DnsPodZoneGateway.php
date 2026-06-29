@@ -15,7 +15,7 @@ use TencentCloud\Dnspod\V20210323\Models\DeleteDomainRequest;
 use TencentCloud\Dnspod\V20210323\Models\DescribeDomainListRequest;
 use TencentCloud\Dnspod\V20210323\Models\DomainListItem;
 
-class DnsPodZoneService
+class DnsPodZoneGateway
 {
     use ProviderServiceConcern;
     use PaginationMeta;

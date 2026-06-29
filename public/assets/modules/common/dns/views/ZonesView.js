@@ -3,13 +3,14 @@ import { loadProviders } from '../../../../providers/store.js'
 import { providerPath } from '../../../../routes/paths.js'
 import { resolveProviderAvatarColor, resolveProviderHook } from '../../../../providers/registry.js'
 import { message, modal } from '../../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../../shared/utils/errors.js'
 import { tablePagination } from '../../../../shared/utils/pagination.js'
 import { defaultProviderHook } from '../hook.js'
 
 export default {
   props: { provider: String, providerMeta: Object },
   data() {
-    return { zones: [], currentProviderMeta: this.providerMeta || null, providerHook: defaultProviderHook, keyword: '', loading: true, adding: false, deleting: false, showAddZone: false, addZoneName: '' }
+    return { zones: [], currentProviderMeta: this.providerMeta || null, providerHook: defaultProviderHook, keyword: '', loading: true, adding: false, deleting: false, showAddZone: false, addZoneName: '', loadRequestToken: 0 }
   },
   computed: {
     providerName() { return this.currentProviderMeta?.name || this.provider },
@@ -59,7 +60,7 @@ export default {
         await this.load({ refresh: true })
         this.showCreateResult(response.data)
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.adding = false
       }
@@ -82,26 +83,32 @@ export default {
         message.success('域名已删除')
         await this.load({ refresh: true })
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.deleting = false
       }
     },
     async load(options = {}) {
+      const requestToken = this.loadRequestToken + 1
+      this.loadRequestToken = requestToken
       this.loading = true
       try {
         if (!this.currentProviderMeta) {
           const providers = await loadProviders()
+          if (requestToken !== this.loadRequestToken) return
           this.currentProviderMeta = providers.find((provider) => provider.id === this.provider) || null
         }
+        if (requestToken !== this.loadRequestToken) return
         const zones = await dnsApi.zones(this.provider, options)
+        if (requestToken !== this.loadRequestToken) return
         this.providerHook = resolveProviderHook(this.currentProviderMeta?.type || this.provider)
         this.zones = zones.data
         if (options.refresh) message.success('已刷新')
       } catch (error) {
-        message.error(error.message)
+        if (requestToken !== this.loadRequestToken) return
+        message.error(errorMessage(error))
       } finally {
-        this.loading = false
+        if (requestToken === this.loadRequestToken) this.loading = false
       }
     },
   },

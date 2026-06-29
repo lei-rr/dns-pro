@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace app\controller\cloudflared;
 
 use app\controller\concerns\ResolvesQueryParams;
+use app\controller\concerns\ValidatesInput;
 use app\service\cloudflared\CloudflaredMapper;
+use app\service\cloudflared\CloudflaredRouteService;
 use app\service\cloudflared\CloudflaredTunnelService;
 use app\support\ApiResponse;
 use app\validate\CloudflaredValidate;
@@ -25,9 +27,11 @@ use think\Response;
 class CloudflaredTunnelController
 {
     use ResolvesQueryParams;
+    use ValidatesInput;
 
     public function __construct(
         private readonly CloudflaredTunnelService $tunnels,
+        private readonly CloudflaredRouteService $routes,
         private readonly CloudflaredMapper $mapper,
     ) {
     }
@@ -46,9 +50,7 @@ class CloudflaredTunnelController
 
     public function store(string $providerId): Response
     {
-        $data = validate(CloudflaredValidate::class)
-            ->scene('create')
-            ->checked(input('post.', []));
+        $data = $this->postInput(CloudflaredValidate::class, 'create');
 
         return ApiResponse::data(
             $this->tunnels->create($providerId, trim((string) $data['name'])),
@@ -73,26 +75,22 @@ class CloudflaredTunnelController
 
     public function configShow(string $providerId, string $tunnelId): Response
     {
-        return ApiResponse::data($this->tunnels->getConfig($providerId, $tunnelId, $this->boolQuery('refresh')));
+        return ApiResponse::data($this->routes->getConfig($providerId, $tunnelId, $this->boolQuery('refresh')));
     }
 
     public function addRoute(string $providerId, string $tunnelId): Response
     {
-        $data = validate(CloudflaredValidate::class)
-            ->scene('route')
-            ->checked(input('post.', []));
+        $data = $this->postInput(CloudflaredValidate::class, 'route');
 
         return ApiResponse::data(
-            $this->tunnels->addRoute($providerId, $tunnelId, $this->routePayload($data)),
+            $this->routes->addRoute($providerId, $tunnelId, $this->routePayload($data)),
             201,
         );
     }
 
     public function updateRoute(string $providerId, string $tunnelId): Response
     {
-        $data = validate(CloudflaredValidate::class)
-            ->scene('route')
-            ->checked(input('put.', []));
+        $data = $this->putInput(CloudflaredValidate::class, 'route');
 
         $originalHostname = trim((string) input('get.original_hostname', ''));
         $originalPath = (string) input('get.original_path', '');
@@ -103,7 +101,7 @@ class CloudflaredTunnelController
         }
 
         return ApiResponse::data(
-            $this->tunnels->updateRoute(
+            $this->routes->updateRoute(
                 $providerId,
                 $tunnelId,
                 $originalHostname,
@@ -119,12 +117,12 @@ class CloudflaredTunnelController
         $path = (string) input('get.path', '');
         $zoneId = trim((string) input('get.zone_id', ''));
 
-        return ApiResponse::data($this->tunnels->deleteRoute($providerId, $tunnelId, $hostname, $path, $zoneId));
+        return ApiResponse::data($this->routes->deleteRoute($providerId, $tunnelId, $hostname, $path, $zoneId));
     }
 
     public function zones(string $providerId): Response
     {
-        return ApiResponse::data($this->tunnels->zones($providerId, $this->boolQuery('refresh')));
+        return ApiResponse::data($this->routes->zones($providerId, $this->boolQuery('refresh')));
     }
 
     /**

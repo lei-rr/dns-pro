@@ -19,7 +19,7 @@ namespace app\service\dnspod;
 class DnsPodRecordSync
 {
     public function __construct(
-        private readonly DnsPodRecordService $records,
+        private readonly DnsPodRecordGateway $records,
     ) {
     }
 

@@ -1,4 +1,5 @@
 import { message } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 import { recordToFormState, formStateToRecordPayload, fullDomainName, validateEdgeOneRecordForm } from '../utils/recordPayload.js'
 
 export default {
@@ -71,7 +72,7 @@ export default {
     submit() {
       const error = validateEdgeOneRecordForm(this.form, this.domainSuffix)
       if (error) {
-        message.error(error)
+        message.error(errorMessage(error, '表单校验失败'))
         return
       }
       const payload = this.submitPayload

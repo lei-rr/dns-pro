@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace app\service\cloudflare;
 
+use app\exception\ApiException;
 use app\repository\ProviderRepository;
 use app\service\concerns\PaginationMeta;
 use app\service\concerns\ProviderServiceConcern;
@@ -14,7 +15,7 @@ use app\service\concerns\ProviderServiceConcern;
  * 封装所有 /zones/:zoneId/custom_hostnames/* 的 API 调用与缓存。
  * 上层（hostname 模块）只通过本服务访问 Cloudflare，不直接拼路径。
  */
-class CloudflareCustomHostnameService
+class CloudflareCustomHostnameGateway
 {
     use ProviderServiceConcern;
     use PaginationMeta;
@@ -33,6 +34,11 @@ class CloudflareCustomHostnameService
             'page' => $page,
             'per_page' => $perPage,
         ]);
+
+        if ($refresh) {
+            // 列表强刷后，详情接口也必须读到同一批最新数据，避免 show 继续命中旧缓存。
+            $this->invalidateCache($this->customHostnameCacheTag($cloudflareProviderId, $zoneId));
+        }
 
         $cached = $this->getCached($cacheKey, $refresh);
         if ($cached !== null) {
@@ -195,6 +201,47 @@ class CloudflareCustomHostnameService
         return $result;
     }
 
+    public function update(string $cloudflareProviderId, string $zoneId, string $hostnameId, array $data): array
+    {
+        $provider = $this->findProvider($cloudflareProviderId);
+        $payload = [];
+
+        if (array_key_exists('custom_origin_server', $data)) {
+            $customOriginServer = trim((string) ($data['custom_origin_server'] ?? ''));
+            $payload['custom_origin_server'] = $customOriginServer !== '' ? $customOriginServer : null;
+        }
+
+        $ssl = [];
+        $method = trim((string) ($data['method'] ?? ''));
+        if ($method !== '') {
+            $ssl['method'] = $method;
+        }
+
+        $minTlsVersion = trim((string) ($data['min_tls_version'] ?? ''));
+        if ($minTlsVersion !== '') {
+            $ssl['settings'] = ['min_tls_version' => $minTlsVersion];
+        }
+
+        if ($ssl !== []) {
+            $ssl['type'] = 'dv';
+            $payload['ssl'] = $ssl;
+        }
+
+        $response = $this->client->patch(
+            $provider,
+            'zones/' . rawurlencode($zoneId) . '/custom_hostnames/' . rawurlencode($hostnameId),
+            $payload,
+        );
+        $result = $this->present($response['result'] ?? []);
+
+        $this->invalidateCache(
+            $this->providerCacheTag($cloudflareProviderId),
+            $this->customHostnameCacheTag($cloudflareProviderId, $zoneId),
+        );
+
+        return $result;
+    }
+
     public function delete(string $cloudflareProviderId, string $zoneId, string $hostnameId): array
     {
         $provider = $this->findProvider($cloudflareProviderId);
@@ -240,8 +287,13 @@ class CloudflareCustomHostnameService
                 'zones/' . rawurlencode($zoneId) . '/custom_hostnames/fallback_origin',
             );
             $info = $this->presentFallbackOrigin($payload['result'] ?? []);
-        } catch (\Throwable) {
-            // Cloudflare 在 fallback_origin 未配置时返回 404
+        } catch (\Throwable $e) {
+            // 只有 Cloudflare 明确返回 404（未配置 fallback origin）时，才降级为空结果。
+            // 其他错误（鉴权失败、权限缺失、上游异常等）必须向上抛出，避免被误判成“未配置”。
+            if (!$this->isFallbackOriginNotFound($e)) {
+                throw $e;
+            }
+
             $info = $this->presentFallbackOrigin([]);
         }
 
@@ -299,6 +351,15 @@ class CloudflareCustomHostnameService
             'created_at' => $result['created_at'] ?? null,
             'updated_at' => $result['updated_at'] ?? null,
         ];
+    }
+
+    private function isFallbackOriginNotFound(\Throwable $error): bool
+    {
+        if (!$error instanceof ApiException) {
+            return false;
+        }
+
+        return (int) ($error->getDetails()['http_status'] ?? 0) === 404;
     }
 
     /**

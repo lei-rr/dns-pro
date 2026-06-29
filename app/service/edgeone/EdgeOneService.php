@@ -25,7 +25,8 @@ use TencentCloud\Teo\V20220901\Models\Zone;
 /**
  * EdgeOne 服务
  *
- * 单一对外入口，封装：zone 列表、加速域名 CRUD、状态变更、证书更新、CNAME 同步到 DNSPod、CNAME 解析状态查询、连接测试。
+ * 领域服务：封装 EdgeOne zone / acceleration domain / status / certificate / CNAME 状态查询等领域能力。
+ * DNSPod 同步与清理编排由 EdgeOneWorkflowService 负责。
  *
  * 模块边界：通过关联的 DNSPod provider 鉴权（共用密钥）；DNSPod 写入委托给 EdgeOneSyncService。
  */
@@ -41,7 +42,6 @@ class EdgeOneService
     public function __construct(
         private readonly ProviderRepository $providers,
         private readonly EdgeOneClientFactory $clients,
-        private readonly EdgeOneSyncService $syncService,
         private readonly EdgeOneMapper $mapper,
     ) {
     }
@@ -161,15 +161,10 @@ class EdgeOneService
         return $result;
     }
 
-    public function createAccelerationDomain(string $providerId, string $zoneId, array $data, bool $autoSync = false): array
+    public function createAccelerationDomain(string $providerId, string $zoneId, array $data): array
     {
         $data = $this->mapper->normalizeAccelerationDomainData($data);
         $domainName = (string) $data['domain_name'];
-
-        // autoSync 开启时先预检 DNSPod zone:不通过则不进入 EdgeOne 创建
-        if ($autoSync) {
-            $this->syncService->preflight($providerId, $domainName);
-        }
 
         $provider = $this->credentialProvider($providerId);
         $request = new CreateAccelerationDomainRequest();
@@ -188,11 +183,6 @@ class EdgeOneService
             'request_id' => $response->RequestId,
             'ownership_verification' => $response->OwnershipVerification ?? null,
         ];
-
-        // 创建后自动同步 CNAME 到 DNSPod(失败不影响创建结果,降级为 dns_record.synced=false)
-        if ($autoSync) {
-            $result['dns_record'] = $this->safeSyncCname($providerId, $zoneId, $domainName);
-        }
 
         return $result;
     }
@@ -215,19 +205,8 @@ class EdgeOneService
         return ['name' => $domainName, 'request_id' => $response->RequestId];
     }
 
-    public function deleteAccelerationDomain(string $providerId, string $zoneId, string $domainName, bool $autoCleanup = false): array
+    public function deleteAccelerationDomain(string $providerId, string $zoneId, string $domainName): array
     {
-        // 删除前先收集 CNAME(删除后无法再查 EdgeOne)
-        $cname = '';
-        if ($autoCleanup) {
-            try {
-                $domain = $this->findAccelerationDomain($providerId, $zoneId, $domainName);
-                $cname = (string) ($domain['cname'] ?? '');
-            } catch (\Throwable) {
-                $cname = '';
-            }
-        }
-
         $provider = $this->credentialProvider($providerId);
         $request = new DeleteAccelerationDomainsRequest();
         $request->ZoneId = $zoneId;
@@ -242,13 +221,7 @@ class EdgeOneService
 
         $this->invalidateCache($this->domainCacheTag($providerId, $zoneId));
 
-        $result = ['name' => $domainName, 'request_id' => $response->RequestId];
-
-        if ($autoCleanup) {
-            $result['dns_cleanup'] = $this->safeCleanupCname($providerId, $domainName, $cname);
-        }
-
-        return $result;
+        return ['name' => $domainName, 'request_id' => $response->RequestId];
     }
 
     public function updateAccelerationDomainStatus(string $providerId, string $zoneId, string $domainName, string $status): array
@@ -303,20 +276,10 @@ class EdgeOneService
     /**
      * 把 EdgeOne 加速域名的 CNAME 自动同步到关联的 DNSPod zone（手动触发，失败抛异常）
      */
-    public function syncCname(string $providerId, string $zoneId, string $domainName): array
+    public function assignedCname(string $providerId, string $zoneId, string $domainName): string
     {
         $domain = $this->findAccelerationDomain($providerId, $zoneId, $domainName);
-        $cname = (string) ($domain['cname'] ?? '');
-
-        if ($cname === '') {
-            throw new ApiException('EdgeOne CNAME not found', 502, 'edgeone_cname_empty', [
-                'provider_id' => $providerId,
-                'zone_id' => $zoneId,
-                'domain_name' => $domainName,
-            ]);
-        }
-
-        return $this->presentCnameSync($this->syncService->sync($providerId, $domainName, $cname));
+        return (string) ($domain['cname'] ?? '');
     }
 
     /**
@@ -427,69 +390,6 @@ class EdgeOneService
             'zone_id' => $zoneId,
             'domain_name' => $domainName,
         ]);
-    }
-
-    /**
-     * 创建后调用:同步 CNAME 到 DNSPod,失败时降级返回 synced=false(不阻断主流程)
-     *
-     * EdgeOne 创建加速域名后,CNAME 在响应中不返回,需要二次拉详情;
-     * 域名刚创建时也可能尚未分配 CNAME,此处优雅降级。
-     */
-    private function safeSyncCname(string $providerId, string $zoneId, string $domainName): array
-    {
-        try {
-            $domain = $this->findAccelerationDomain($providerId, $zoneId, $domainName);
-            $cname = (string) ($domain['cname'] ?? '');
-            if ($cname === '') {
-                return $this->mapper->syncResult(false, 'skipped', 'EdgeOne CNAME 尚未分配,稍后可手动同步', '');
-            }
-
-            return $this->presentCnameSync($this->syncService->sync($providerId, $domainName, $cname));
-        } catch (ApiException $e) {
-            return $this->mapper->syncResult(false, 'skipped', $e->getMessage(), '');
-        } catch (\Throwable $e) {
-            return $this->mapper->syncResult(false, 'failed', $e->getMessage(), '');
-        }
-    }
-
-    /**
-     * 把 EdgeOneSyncService::sync 的结果包装成前端约定的 syncResult 形态
-     */
-    private function presentCnameSync(array $syncResult): array
-    {
-        $status = (string) ($syncResult['record']['status'] ?? '');
-
-        return $this->mapper->syncResult(
-            $status !== 'failed',
-            $status ?: 'unknown',
-            $this->syncActionMessage($status),
-            (string) ($syncResult['record']['record_id'] ?? ''),
-        );
-    }
-
-    /**
-     * 删除后调用:清理 DNSPod 中的 CNAME,失败时降级返回 cleaned=0(不阻断主流程)
-     */
-    private function safeCleanupCname(string $providerId, string $domainName, string $cname): array
-    {
-        try {
-            return $this->syncService->cleanup($providerId, $domainName, $cname);
-        } catch (ApiException $e) {
-            return ['cleaned' => 0, 'records' => [], 'reason' => $e->getErrorCode() ?: 'cleanup_skipped', 'message' => $e->getMessage()];
-        } catch (\Throwable $e) {
-            return ['cleaned' => 0, 'records' => [], 'reason' => 'cleanup_failed', 'message' => $e->getMessage()];
-        }
-    }
-
-    private function syncActionMessage(string $status): string
-    {
-        return match ($status) {
-            'created' => 'DNSPod CNAME 已创建',
-            'updated' => 'DNSPod CNAME 已更新',
-            'unchanged' => 'DNSPod CNAME 已是最新',
-            'failed' => 'DNSPod CNAME 同步失败',
-            default => 'DNSPod CNAME 同步完成',
-        };
     }
 
     private function applyAccelerationDomainPayload(CreateAccelerationDomainRequest|ModifyAccelerationDomainRequest $request, string $zoneId, array $data): void

@@ -9,7 +9,7 @@ use app\repository\ProviderRepository;
 use app\service\concerns\PaginationMeta;
 use app\service\concerns\ProviderServiceConcern;
 
-class CloudflareZoneService
+class CloudflareZoneGateway
 {
     use ProviderServiceConcern;
     use PaginationMeta;

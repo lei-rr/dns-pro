@@ -1,5 +1,6 @@
 import { authApi } from '../api/auth.js'
 import { message } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 
 export default {
   data() {
@@ -42,7 +43,7 @@ export default {
           this.captcha = ''
           this.refreshCaptcha()
         }
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.loading = false
       }

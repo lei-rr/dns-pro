@@ -2,6 +2,7 @@ import { cloudflaredApi } from '../utils/api.js'
 import { statusLabel, statusColor } from '../utils/format.js'
 import { providerPath } from '../../../routes/paths.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 import CopyButton from '../../../shared/components/CopyButton.js'
 import TunnelInstallPanel from '../components/TunnelInstallPanel.js'
 import RouteFormModal from '../components/RouteFormModal.js'
@@ -17,6 +18,9 @@ export default {
       token: '',
       config: null,
       zones: [],
+      tokenError: '',
+      routesError: '',
+      zonesError: '',
       loading: true,
       loadingConfig: false,
       savingRoute: false,
@@ -25,6 +29,7 @@ export default {
       showRouteForm: false,
       editingRoute: null, // null=添加, object=编辑
       pollingTimer: null,
+      contextToken: 0,
     }
   },
   computed: {
@@ -64,50 +69,72 @@ export default {
     },
   },
   async mounted() {
-    await this.loadAll()
-    this.startPolling()
+    await this.reloadContext()
   },
   beforeUnmount() {
+    this.contextToken += 1
     this.stopPolling()
   },
   watch: {
-    tunnelId() { this.loadAll() },
-    provider() { this.loadAll() },
+    tunnelId() { this.reloadContext() },
+    provider() { this.reloadContext() },
   },
   methods: {
     statusLabel,
     statusColor,
 
-    async loadAll() {
+    async reloadContext() {
+      const token = this.contextToken + 1
+      this.contextToken = token
+      this.stopPolling()
+      this.tunnel = null
+      this.token = ''
+      this.config = null
+      this.zones = []
+      this.tokenError = ''
+      this.routesError = ''
+      this.zonesError = ''
+      this.showRouteForm = false
+      this.editingRoute = null
+      await this.loadAll(token)
+    },
+
+    async loadAll(token = this.contextToken) {
       this.loading = true
       try {
-        await Promise.all([this.loadTunnel(), this.loadToken(), this.loadRoutes(), this.loadZones()])
+        await Promise.all([this.loadTunnel(token), this.loadToken(token), this.loadRoutes(token), this.loadZones(token)])
+        if (token !== this.contextToken) return
         // 刷新后按最新状态决定是否轮询（未连接则恢复轮询）
         this.startPolling()
       } finally {
-        this.loading = false
+        if (token === this.contextToken) this.loading = false
       }
     },
 
-    async loadTunnel() {
+    async loadTunnel(token = this.contextToken) {
       try {
         const response = await cloudflaredApi.tunnel(this.provider, this.tunnelId, { refresh: true })
+        if (token !== this.contextToken) return
         this.tunnel = response.data || null
         // 已连接则停止轮询（startPolling 内部已含同样判断，这里在轮询回调中即时生效）
         if (this.isConnected) {
           this.stopPolling()
         }
       } catch (error) {
-        message.error(error.message)
+        if (token !== this.contextToken) return
+        message.error(errorMessage(error))
       }
     },
 
-    async loadToken() {
+    async loadToken(token = this.contextToken) {
       try {
         const response = await cloudflaredApi.tunnelToken(this.provider, this.tunnelId)
+        if (token !== this.contextToken) return
         this.token = response.data?.token || ''
-      } catch {
-        this.token = ''
+        this.tokenError = ''
+      } catch (error) {
+        if (token !== this.contextToken) return
+        this.tokenError = error.message || '无法获取安装命令'
       }
     },
 
@@ -129,30 +156,36 @@ export default {
         // 旧副本会断开，恢复轮询以反映最新连接状态
         this.startPolling()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.rotating = false
       }
     },
 
-    async loadRoutes() {
+    async loadRoutes(token = this.contextToken) {
       this.loadingConfig = true
       try {
         const response = await cloudflaredApi.routes(this.provider, this.tunnelId)
+        if (token !== this.contextToken) return
         this.config = response.data || null
-      } catch {
-        this.config = null
+        this.routesError = ''
+      } catch (error) {
+        if (token !== this.contextToken) return
+        this.routesError = error.message || '无法加载路由配置'
       } finally {
-        this.loadingConfig = false
+        if (token === this.contextToken) this.loadingConfig = false
       }
     },
 
-    async loadZones() {
+    async loadZones(token = this.contextToken) {
       try {
         const response = await cloudflaredApi.zones(this.provider)
+        if (token !== this.contextToken) return
         this.zones = response.data || []
-      } catch {
-        this.zones = []
+        this.zonesError = ''
+      } catch (error) {
+        if (token !== this.contextToken) return
+        this.zonesError = error.message || '无法加载 Cloudflare 站点列表'
       }
     },
 
@@ -160,7 +193,7 @@ export default {
       this.stopPolling()
       // 仅在未连接时轮询；已连接无需自动刷新
       if (this.isConnected) return
-      this.pollingTimer = setInterval(() => this.loadTunnel(), REFRESH_INTERVAL_MS)
+      this.pollingTimer = setInterval(() => this.loadTunnel(this.contextToken), REFRESH_INTERVAL_MS)
     },
     stopPolling() {
       if (this.pollingTimer) { clearInterval(this.pollingTimer); this.pollingTimer = null }
@@ -169,27 +202,47 @@ export default {
     openAddRoute() { this.editingRoute = null; this.showRouteForm = true },
     openEditRoute(route) { this.editingRoute = { ...route }; this.showRouteForm = true },
 
+    notifyDnsOperation(operation, successFallback) {
+      if (!operation) {
+        message.success(successFallback)
+        return
+      }
+
+      const text = operation.message || successFallback
+      if (operation.status === 'failed') {
+        message.warning(text)
+        return
+      }
+      if (operation.status === 'skipped') {
+        message.warning(text)
+        return
+      }
+
+      message.success(text)
+    },
+
     async saveRoute(form) {
       this.savingRoute = true
       try {
+        let response = null
         if (this.editingRoute) {
-          await cloudflaredApi.updateRoute(
+          response = await cloudflaredApi.updateRoute(
             this.provider,
             this.tunnelId,
             form,
             this.editingRoute.hostname,
             this.editingRoute.path || '',
           )
-          message.success('路由已更新')
+          this.notifyDnsOperation(response?.data?.side_effects?.dns?.sync, '路由已更新')
         } else {
-          await cloudflaredApi.addRoute(this.provider, this.tunnelId, form)
-          message.success('路由已添加')
+          response = await cloudflaredApi.addRoute(this.provider, this.tunnelId, form)
+          this.notifyDnsOperation(response?.data?.side_effects?.dns?.sync, '路由已添加')
         }
         this.showRouteForm = false
         this.editingRoute = null
         await this.loadRoutes()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       } finally {
         this.savingRoute = false
       }
@@ -207,11 +260,11 @@ export default {
     async removeRoute(route) {
       try {
         const zone = this.matchZone(route.hostname)
-        await cloudflaredApi.deleteRoute(this.provider, this.tunnelId, route.hostname, route.path || '', zone?.id || '')
-        message.success('路由已删除')
+        const response = await cloudflaredApi.deleteRoute(this.provider, this.tunnelId, route.hostname, route.path || '', zone?.id || '')
+        this.notifyDnsOperation(response?.data?.side_effects?.dns?.cleanup, '路由已删除')
         await this.loadRoutes()
       } catch (error) {
-        message.error(error.message)
+        message.error(errorMessage(error))
       }
     },
 
@@ -282,6 +335,7 @@ export default {
                 要激活此隧道，请在服务器上安装 cloudflared 连接器。每个连接器会创建一个副本，并与 Cloudflare 的网络建立 4 个连接以实现高可用性。
               </a-typography-text>
               <a-alert v-else type="success" show-icon message="客户端已连接" style="margin-bottom: 12px" />
+              <a-alert v-if="tokenError" type="error" show-icon :message="tokenError" style="margin-bottom: 12px" />
               <TunnelInstallPanel v-if="token" :token="token" />
               <a-empty v-else description="无法获取安装命令" />
             </a-card>
@@ -311,6 +365,8 @@ export default {
               <a-button type="primary" :disabled="!isConnected" @click="openAddRoute">添加路由</a-button>
             </div>
             <a-alert v-if="!isConnected" type="warning" show-icon message="隧道未连接，请先安装客户端后再配置路由" style="margin-bottom: 16px" />
+            <a-alert v-if="routesError" type="error" show-icon :message="routesError" style="margin-bottom: 16px" />
+            <a-alert v-else-if="zonesError" type="warning" show-icon :message="zonesError" style="margin-bottom: 16px" />
             <a-table :columns="routeColumns" :data-source="routes" :row-key="r => r.hostname + (r.path || '')" :loading="loadingConfig" :pagination="false" size="middle" :locale="{ emptyText: '暂无路由' }">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'path'">{{ record.path || '/' }}</template>

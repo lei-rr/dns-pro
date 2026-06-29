@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace app\service\hostname;
 
 use app\exception\ApiException;
-use app\support\JsonStore;
+use app\repository\PreferredDomainRepository;
 
 /**
  * 优选域名服务（JSON-backed）
@@ -15,11 +15,11 @@ use app\support\JsonStore;
  */
 class PreferredDomainService
 {
-    private readonly JsonStore $store;
+    private readonly PreferredDomainRepository $store;
 
-    public function __construct(?JsonStore $store = null)
+    public function __construct(?PreferredDomainRepository $store = null)
     {
-        $this->store = $store ?? new JsonStore('hostname/preferred-domains.json', ['items' => []]);
+        $this->store = $store ?? new PreferredDomainRepository();
     }
 
     /**
