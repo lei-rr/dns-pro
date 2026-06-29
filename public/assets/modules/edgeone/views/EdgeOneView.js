@@ -7,7 +7,7 @@ import { tablePagination } from '../../../shared/utils/pagination.js'
 export default {
   props: ['provider'],
   data() {
-    return { zones: [], keyword: '', loading: true, loadRequestToken: 0 }
+    return { zones: [], zoneMeta: { page: 1, per_page: 20, total: 0 }, keyword: '', loading: true, loadRequestToken: 0 }
   },
   computed: {
     filteredZones() {
@@ -26,26 +26,50 @@ export default {
         { title: '操作', key: 'actions', width: 100, align: 'right' },
       ]
     },
-    pagination() { return tablePagination() },
+    pagination() {
+      return tablePagination({
+        current: this.zoneMeta.page || 1,
+        pageSize: this.zoneMeta.per_page || 20,
+        total: this.zoneMeta.total || 0,
+      })
+    },
   },
   async mounted() {
     await this.load()
   },
   watch: {
     provider() {
+      this.zoneMeta = { page: 1, per_page: 20, total: 0 }
       this.keyword = ''
       this.load()
     },
   },
   methods: {
+    handleTableChange(pagination) {
+      const nextPerPage = Number(pagination?.pageSize) || this.zoneMeta.per_page || 20
+      const pageSizeChanged = nextPerPage !== this.zoneMeta.per_page
+      const nextPage = pageSizeChanged ? 1 : (Number(pagination?.current) || 1)
+      if (nextPage === this.zoneMeta.page && nextPerPage === this.zoneMeta.per_page) return
+      this.zoneMeta = { ...this.zoneMeta, page: nextPage, per_page: nextPerPage }
+      this.load()
+    },
     async load(options = {}) {
       const requestToken = this.loadRequestToken + 1
       this.loadRequestToken = requestToken
       this.loading = true
       try {
-        const response = await edgeOneApi.zones(this.provider, options)
+        const response = await edgeOneApi.zones(this.provider, {
+          page: this.zoneMeta.page,
+          per_page: this.zoneMeta.per_page,
+          ...options,
+        })
         if (requestToken !== this.loadRequestToken) return
         this.zones = response.data
+        this.zoneMeta = {
+          page: response.meta?.page || this.zoneMeta.page,
+          per_page: response.meta?.per_page || this.zoneMeta.per_page,
+          total: response.meta?.total || 0,
+        }
         if (options.refresh) message.success('已刷新')
       } catch (error) {
         if (requestToken !== this.loadRequestToken) return
@@ -66,11 +90,11 @@ export default {
     activeStatusLabel(value) {
       return ({ active: '已启用', inactive: '未生效', paused: '已停用' })[value] || value || '-'
     },
-    zonePath(zoneName) {
-      return providerChildPath(this.provider, zoneName)
+    zonePath(zone) {
+      return providerChildPath(this.provider, zone.id)
     },
     zoneRoute(zone) {
-      return this.zonePath(zone.name)
+      return this.zonePath(zone)
     },
     statusColor(status) {
       if (['active', 'online', 'enable', 'normal'].includes(status)) return 'green'
@@ -101,6 +125,7 @@ export default {
         size="middle"
         :scroll="{ x: 820 }"
         :locale="{ emptyText: '暂无 EdgeOne 站点' }"
+        @change="handleTableChange"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'">

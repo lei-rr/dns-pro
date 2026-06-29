@@ -11,7 +11,6 @@ use app\service\concerns\ProviderServiceConcern;
 use app\service\concerns\TencentSdkExceptionConcern;
 use TencentCloud\Common\Exception\TencentCloudSDKException;
 use TencentCloud\Teo\V20220901\Models\AccelerationDomain;
-use TencentCloud\Teo\V20220901\Models\CheckCnameStatusRequest;
 use TencentCloud\Teo\V20220901\Models\CreateAccelerationDomainRequest;
 use TencentCloud\Teo\V20220901\Models\DeleteAccelerationDomainsRequest;
 use TencentCloud\Teo\V20220901\Models\DescribeAccelerationDomainsRequest;
@@ -84,7 +83,7 @@ class EdgeOneService
             ],
             'request_id' => $response->RequestId,
         ];
-        $result['meta'] = $this->offsetPaginationMeta($result['pagination'], 100);
+        $result['meta'] = $this->offsetPaginationMeta($result['pagination'], 20);
 
         $this->setCached($cacheKey, $result, [
             $this->providerCacheTag($providerId),
@@ -94,21 +93,21 @@ class EdgeOneService
         return $result;
     }
 
-    public function zoneIdByName(string $providerId, string $zoneName): string
+    public function zoneById(string $providerId, string $zoneId): array
     {
         $zone = $this->findFirstMatchedZone(
             $providerId,
-            fn (array $zone) => strcasecmp((string) ($zone['name'] ?? ''), $zoneName) === 0 && (string) ($zone['id'] ?? '') !== '',
+            fn (array $zone) => (string) ($zone['id'] ?? '') === $zoneId,
         );
 
         if ($zone === null) {
             throw new ApiException('EdgeOne zone not found', 404, 'edgeone_zone_not_found', [
                 'provider_id' => $providerId,
-                'zone_name' => $zoneName,
+                'zone_id' => $zoneId,
             ]);
         }
 
-        return (string) $zone['id'];
+        return $zone;
     }
 
     // ---------- Acceleration Domains ----------
@@ -151,7 +150,7 @@ class EdgeOneService
             ],
             'request_id' => $response->RequestId,
         ];
-        $result['meta'] = $this->offsetPaginationMeta($result['pagination'], 100);
+        $result['meta'] = $this->offsetPaginationMeta($result['pagination'], 20);
 
         $this->setCached($cacheKey, $result, [
             $this->providerCacheTag($providerId),
@@ -280,38 +279,6 @@ class EdgeOneService
     {
         $domain = $this->findAccelerationDomain($providerId, $zoneId, $domainName);
         return (string) ($domain['cname'] ?? '');
-    }
-
-    /**
-     * 查询 EdgeOne 加速域名当前 CNAME 解析状态
-     */
-    public function cnameStatus(string $providerId, string $zoneId, string $domainName): array
-    {
-        $provider = $this->credentialProvider($providerId);
-        $request = new CheckCnameStatusRequest();
-        $request->ZoneId = $zoneId;
-        $request->RecordNames = [$domainName];
-
-        try {
-            $response = $this->clients->make($provider)->CheckCnameStatus($request);
-        } catch (TencentCloudSDKException $exception) {
-            throw $this->wrapSdkException('EdgeOne CNAME status check failed', 'edgeone_cname_status_failed', $providerId, $exception, [
-                'zone_id' => $zoneId,
-                'domain_name' => $domainName,
-            ]);
-        }
-
-        $list = $response->StatusList ?? [];
-        if (empty($list)) {
-            return [
-                'record_name' => $domainName,
-                'cname' => null,
-                'status' => null,
-                'request_id' => $response->RequestId,
-            ];
-        }
-
-        return $this->mapper->presentCnameStatus($list[0]) + ['request_id' => $response->RequestId];
     }
 
     // ---------- private ----------

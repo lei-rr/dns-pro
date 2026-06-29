@@ -9,11 +9,11 @@ export default {
   props: {
     records: Array,
     loading: Boolean,
+    pagination: Object,
     emptyText: { type: String, default: '暂无加速域名' },
     selectionResetKey: Number,
-    syncingCname: String,
   },
-  emits: ['edit', 'status', 'certificate', 'delete', 'sync-cname', 'selection-change'],
+  emits: ['edit', 'status', 'certificate', 'delete', 'selection-change', 'change'],
   data() {
     return { selectedRowKeys: [] }
   },
@@ -31,10 +31,8 @@ export default {
             { text: '已停用', value: 'offline' },
             { text: '未生效', value: 'init' },
             { text: '已封禁', value: 'forbidden' },
-            { text: '请添加 CNAME', value: 'cname_moved' },
-            { text: 'CNAME 异常', value: 'cname_invalid' },
           ],
-          onFilter: (value, record) => this.displayStatus(record) === value,
+          onFilter: (value, record) => record.status === value,
         },
         {
           title: 'CNAME',
@@ -65,7 +63,7 @@ export default {
         { title: '操作', key: 'actions', width: 110, align: 'right' },
       ]
     },
-    pagination() { return tablePagination() },
+    tablePaginationConfig() { return this.pagination || tablePagination() },
   },
   watch: {
     records() {
@@ -81,28 +79,8 @@ export default {
     statusColor(status) {
       return edgeOneStatusColors[status] || (status ? 'red' : 'default')
     },
-    displayStatus(record) {
-      if (record.status === 'online' && ['moved', 'invalid'].includes(record.cname_status)) return `cname_${record.cname_status}`
-      return record.status
-    },
     statusLabel(record) {
-      const status = this.displayStatus(record)
-      return ({ cname_moved: '请添加 CNAME', cname_invalid: 'CNAME 异常' })[status] || edgeOneStatusLabels[status] || status || '-'
-    },
-    statusTagColor(record) {
-      const status = this.displayStatus(record)
-      if (status === 'cname_moved') return 'gold'
-      if (status === 'cname_invalid') return 'red'
-      return this.statusColor(status)
-    },
-    needsCnameSync(record) {
-      return ['cname_moved', 'cname_invalid'].includes(this.displayStatus(record))
-    },
-    cnameSyncText(record) {
-      return this.displayStatus(record) === 'cname_invalid' ? '一键修复' : '一键添加'
-    },
-    cnameSyncing(record) {
-      return this.syncingCname === record.name
+      return edgeOneStatusLabels[record.status] || record.status || '-'
     },
     selectRows(keys, rows) {
       this.selectedRowKeys = keys
@@ -111,6 +89,10 @@ export default {
     clearSelection() {
       this.selectedRowKeys = []
       this.$emit('selection-change', [])
+    },
+    handleTableChange(pagination) {
+      this.clearSelection()
+      this.$emit('change', pagination)
     },
     originTypeLabel(type) {
       return edgeOneOriginTypeLabels[type] || type || '-'
@@ -157,22 +139,19 @@ export default {
       :data-source="records"
       :row-key="record => record.name"
       :loading="loading"
-      :pagination="pagination"
+      :pagination="tablePaginationConfig"
       :row-selection="{ selectedRowKeys, onChange: selectRows, getCheckboxProps: record => ({ disabled: record.status !== 'offline' }) }"
       :locale="{ emptyText }"
       size="middle"
       :scroll="{ x: 1060 }"
-      @change="clearSelection"
+      @change="handleTableChange"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'">
           <a-typography-text strong class="break-text">{{ record.name }}</a-typography-text>
         </template>
         <template v-else-if="column.key === 'status'">
-          <a-space direction="vertical" size="small">
-            <a-tag :color="statusTagColor(record)">{{ statusLabel(record) }}</a-tag>
-            <a-button v-if="needsCnameSync(record)" type="link" size="small" style="padding: 0" :loading="cnameSyncing(record)" :disabled="!!syncingCname" @click="$emit('sync-cname', record)">{{ cnameSyncText(record) }}</a-button>
-          </a-space>
+          <a-tag :color="statusColor(record.status)">{{ statusLabel(record) }}</a-tag>
         </template>
         <template v-else-if="column.key === 'cname'">
           <div class="copy-cell">

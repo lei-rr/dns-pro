@@ -21,6 +21,13 @@ export const defaultProviderHook = {
   proxyTypes: [],
   recordLines: [],
   showLine: (lines) => lines.length > 0,
+  zoneStatusColumns: [
+    {
+      key: 'status',
+      title: '状态',
+      getStatus: (record) => record.status || record.access_status || record.dns_status,
+    },
+  ],
   // status 默认实现:原值显示,颜色按通用规则
   zoneStatusLabel: (status) => status || '-',
   zoneStatusColor: (status) => (status ? 'blue' : 'default'),

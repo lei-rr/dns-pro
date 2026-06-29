@@ -23,23 +23,23 @@ class EdgeOneAccelerationDomainController
     ) {
     }
 
-    public function zoneRecords(string $providerId, string $zoneName): Response
+    public function zoneRecords(string $providerId, string $zoneId): Response
     {
         $filters = $this->queryInput(EdgeOneRecordValidate::class, 'index');
 
         return ApiResponse::data(
-            $this->edgeone->accelerationDomains($providerId, $this->zoneId($providerId, $zoneName), $filters),
+            $this->edgeone->accelerationDomains($providerId, $zoneId, $filters),
         );
     }
 
-    public function storeZoneRecord(string $providerId, string $zoneName): Response
+    public function storeZoneRecord(string $providerId, string $zoneId): Response
     {
         $data = $this->postInput(EdgeOneRecordValidate::class, 'record');
 
         return ApiResponse::data(
             $this->workflow->createAccelerationDomain(
                 $providerId,
-                $this->zoneId($providerId, $zoneName),
+                $zoneId,
                 $data,
                 $this->boolQuery('auto_sync'),
             ),
@@ -47,66 +47,55 @@ class EdgeOneAccelerationDomainController
         );
     }
 
-    public function updateZoneRecord(string $providerId, string $zoneName, string $domainName): Response
+    public function updateZoneRecord(string $providerId, string $zoneId, string $domainName): Response
     {
         $data = $this->putInput(EdgeOneRecordValidate::class, 'updateRecord');
 
         return ApiResponse::data(
-            $this->edgeone->updateAccelerationDomain($providerId, $this->zoneId($providerId, $zoneName), $domainName, $data),
+            $this->edgeone->updateAccelerationDomain($providerId, $zoneId, $domainName, $data),
         );
     }
 
-    public function deleteZoneRecord(string $providerId, string $zoneName, string $domainName): Response
+    public function deleteZoneRecord(string $providerId, string $zoneId, string $domainName): Response
     {
         return ApiResponse::data(
             $this->workflow->deleteAccelerationDomain(
                 $providerId,
-                $this->zoneId($providerId, $zoneName),
+                $zoneId,
                 $domainName,
                 $this->boolQuery('auto_cleanup', true),
             ),
         );
     }
 
-    public function updateZoneRecordStatus(string $providerId, string $zoneName, string $domainName): Response
+    public function updateZoneRecordStatus(string $providerId, string $zoneId, string $domainName): Response
     {
         $data = $this->putInput(EdgeOneRecordValidate::class, 'status');
 
         return ApiResponse::data(
             $this->edgeone->updateAccelerationDomainStatus(
                 $providerId,
-                $this->zoneId($providerId, $zoneName),
+                $zoneId,
                 $domainName,
                 $data['status'],
             ),
         );
     }
 
-    public function syncZoneRecordCname(string $providerId, string $zoneName, string $domainName): Response
+    public function syncZoneRecordCname(string $providerId, string $zoneId, string $domainName): Response
     {
         return ApiResponse::data(
-            $this->workflow->syncCname($providerId, $this->zoneId($providerId, $zoneName), $domainName),
+            $this->workflow->syncCname($providerId, $zoneId, $domainName),
         );
     }
 
-    public function updateZoneRecordCertificate(string $providerId, string $zoneName, string $domainName): Response
+    public function updateZoneRecordCertificate(string $providerId, string $zoneId, string $domainName): Response
     {
         $data = $this->putInput(EdgeOneRecordValidate::class, 'certificate');
 
         return ApiResponse::data(
-            $this->edgeone->updateCertificate($providerId, $this->zoneId($providerId, $zoneName), $domainName, $data),
+            $this->edgeone->updateCertificate($providerId, $zoneId, $domainName, $data),
         );
     }
 
-    public function zoneRecordCnameStatus(string $providerId, string $zoneName, string $domainName): Response
-    {
-        return ApiResponse::data(
-            $this->edgeone->cnameStatus($providerId, $this->zoneId($providerId, $zoneName), $domainName),
-        );
-    }
-
-    private function zoneId(string $providerId, string $zoneName): string
-    {
-        return $this->edgeone->zoneIdByName($providerId, strtolower(trim($zoneName)));
-    }
 }

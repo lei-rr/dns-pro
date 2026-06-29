@@ -11,11 +11,12 @@ export default {
     records: Array,
     providerHook: Object,
     loading: Boolean,
+    pagination: Object,
     emptyText: { type: String, default: '暂无解析记录' },
     selectionResetKey: Number,
     typeOptions: { type: Array, default: () => [] },
   },
-  emits: ['edit', 'delete', 'selection-change'],
+  emits: ['edit', 'delete', 'selection-change', 'change'],
   computed: {
     showTtl() {
       return this.hook.showTtl
@@ -69,7 +70,7 @@ export default {
     hasProxy() {
       return this.hook.proxyTypes.length > 0
     },
-    pagination() { return tablePagination() },
+    tablePaginationConfig() { return this.pagination || tablePagination() },
   },
   data() {
     return { selectedRowKeys: [] }
@@ -96,6 +97,10 @@ export default {
       this.selectedRowKeys = []
       this.$emit('selection-change', [])
     },
+    handleTableChange(pagination) {
+      this.clearSelection()
+      this.$emit('change', pagination)
+    },
     actionItems() {
       return [{ key: 'delete', label: '删除', danger: true }]
     },
@@ -109,13 +114,13 @@ export default {
       :data-source="records"
       :row-key="record => record.id"
       :loading="loading"
-      :pagination="pagination"
+      :pagination="tablePaginationConfig"
       :row-selection="{ selectedRowKeys, onChange: selectRows }"
       :locale="{ emptyText }"
       size="middle"
       class="dns-record-table"
       :scroll="{ x: 760 }"
-      @change="clearSelection"
+      @change="handleTableChange"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'">

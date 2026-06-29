@@ -3,6 +3,8 @@ import { providerPath } from '../../../routes/paths.js'
 import { loadProviders } from '../../../providers/store.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
 import { errorMessage } from '../../../shared/utils/errors.js'
+import { tablePagination } from '../../../shared/utils/pagination.js'
+import { showBatchFailures } from '../../../shared/utils/batch.js'
 import BatchToolbar from '../../../shared/components/BatchToolbar.js'
 import EdgeOneCertificateForm from '../components/EdgeOneCertificateForm.js'
 import EdgeOneRecordForm from '../components/EdgeOneRecordForm.js'
@@ -10,22 +12,46 @@ import EdgeOneRecordTable from '../components/EdgeOneRecordTable.js'
 
 export default {
   components: { BatchToolbar, EdgeOneCertificateForm, EdgeOneRecordForm, EdgeOneRecordTable },
-  props: ['provider', 'zoneName'],
+  props: ['provider', 'zoneId'],
   data() {
-    return { records: [], selectedRecords: [], selectionResetKey: 0, notFound: false, editing: null, certEditing: null, showForm: false, showCertForm: false, loading: true, saving: false, deleting: false, deletingText: '', syncingCname: '', cnameStatusWarning: false, providerMeta: null, loadRequestToken: 0 }
+    return {
+      records: [],
+      recordMeta: { page: 1, per_page: 20, total: 0 },
+      selectedRecords: [],
+      selectionResetKey: 0,
+      notFound: false,
+      editing: null,
+      certEditing: null,
+      showForm: false,
+      showCertForm: false,
+      loading: true,
+      saving: false,
+      deleting: false,
+      deletingText: '',
+      providerMeta: null,
+      zoneMeta: null,
+      loadRequestToken: 0,
+    }
   },
   computed: {
-    decodedZoneName() { return decodeURIComponent(this.zoneName) },
-    displayZoneName() { return this.decodedZoneName },
+    decodedZoneId() { return decodeURIComponent(this.zoneId) },
+    displayZoneName() { return this.zoneMeta?.name || '' },
     zonesPath() { return providerPath(this.provider) },
     dnspodLinked() { return Boolean(this.providerMeta?.dnspod_provider) },
+    pagination() {
+      return tablePagination({
+        current: this.recordMeta.page || 1,
+        pageSize: this.recordMeta.per_page || 20,
+        total: this.recordMeta.total || 0,
+      })
+    },
   },
   async mounted() {
     await this.load()
   },
   watch: {
     provider() { this.providerMeta = null; this.resetAndLoad() },
-    zoneName() { this.resetAndLoad() },
+    zoneId() { this.resetAndLoad() },
   },
   methods: {
     resetAndLoad() {
@@ -34,8 +60,23 @@ export default {
       this.certEditing = null
       this.showForm = false
       this.showCertForm = false
-      this.cnameStatusWarning = false
       this.notFound = false
+      this.zoneMeta = null
+      this.recordMeta = { page: 1, per_page: 20, total: 0 }
+      this.load()
+    },
+    async ensureZoneMeta(requestToken) {
+      if (this.zoneMeta) return
+      const response = await edgeOneApi.zone(this.provider, this.decodedZoneId)
+      if (requestToken !== this.loadRequestToken) return
+      this.zoneMeta = response.data || null
+    },
+    handleTableChange(pagination) {
+      const nextPerPage = Number(pagination?.pageSize) || this.recordMeta.per_page || 20
+      const pageSizeChanged = nextPerPage !== this.recordMeta.per_page
+      const nextPage = pageSizeChanged ? 1 : (Number(pagination?.current) || 1)
+      if (nextPage === this.recordMeta.page && nextPerPage === this.recordMeta.per_page) return
+      this.recordMeta = { ...this.recordMeta, page: nextPage, per_page: nextPerPage }
       this.load()
     },
     async load(options = {}) {
@@ -50,10 +91,20 @@ export default {
           this.providerMeta = providers.find((p) => p.id === this.provider) || null
         }
         if (requestToken !== this.loadRequestToken) return
-        const records = await edgeOneApi.accelerationDomains(this.provider, this.decodedZoneName, options)
+        await this.ensureZoneMeta(requestToken)
+        if (requestToken !== this.loadRequestToken) return
+        const records = await edgeOneApi.accelerationDomains(this.provider, this.decodedZoneId, {
+          page: this.recordMeta.page,
+          per_page: this.recordMeta.per_page,
+          ...options,
+        })
         if (requestToken !== this.loadRequestToken) return
         this.records = records.data
-        this.cnameStatusWarning = records.data.some((record) => record.cname_status_error)
+        this.recordMeta = {
+          page: records.meta?.page || this.recordMeta.page,
+          per_page: records.meta?.per_page || this.recordMeta.per_page,
+          total: records.meta?.total || 0,
+        }
         if (options.refresh) message.success('已刷新')
       } catch (error) {
         if (requestToken !== this.loadRequestToken) return
@@ -76,11 +127,11 @@ export default {
       this.saving = true
       try {
         if (this.editing) {
-          await edgeOneApi.updateAccelerationDomain(this.provider, this.decodedZoneName, this.editing.name, form)
+          await edgeOneApi.updateAccelerationDomain(this.provider, this.decodedZoneId, this.editing.name, form)
           message.success('加速域名已更新')
         } else {
           const { autoSync, ...payload } = form
-          const result = await edgeOneApi.createAccelerationDomain(this.provider, this.decodedZoneName, payload, { autoSync })
+          const result = await edgeOneApi.createAccelerationDomain(this.provider, this.decodedZoneId, payload, { autoSync })
           const sync = result?.data?.side_effects?.dns?.sync
           if (autoSync && sync && sync.status === 'failed') {
             message.warning(`加速域名已添加，CNAME 同步失败：${sync.message || '-'}`)
@@ -104,7 +155,7 @@ export default {
       if (!this.certEditing) return
       this.saving = true
       try {
-        await edgeOneApi.updateCertificate(this.provider, this.decodedZoneName, this.certEditing.name, form)
+        await edgeOneApi.updateCertificate(this.provider, this.decodedZoneId, this.certEditing.name, form)
         message.success('HTTPS 配置已更新')
         this.showCertForm = false
         await this.load({ refresh: true })
@@ -161,7 +212,7 @@ export default {
     async remove(record) {
       this.deleting = true
       try {
-        const response = await edgeOneApi.deleteAccelerationDomain(this.provider, this.decodedZoneName, record.name)
+        const response = await edgeOneApi.deleteAccelerationDomain(this.provider, this.decodedZoneId, record.name)
         const cleaned = Number(response?.data?.side_effects?.dns?.cleanup?.details?.cleaned || 0)
         message.success(cleaned > 0 ? '已删除，DNSPod CNAME 已清理' : '已删除')
         await this.load({ refresh: true })
@@ -175,25 +226,13 @@ export default {
     async updateStatus(record, status) {
       this.deleting = true
       try {
-        await edgeOneApi.updateAccelerationDomainStatus(this.provider, this.decodedZoneName, record.name, status)
+        await edgeOneApi.updateAccelerationDomainStatus(this.provider, this.decodedZoneId, record.name, status)
         message.success(status === 'offline' ? '已停用' : '已启用')
         await this.load({ refresh: true })
       } catch (error) {
         message.error(errorMessage(error))
       } finally {
         this.deleting = false
-      }
-    },
-    async syncCname(record) {
-      this.syncingCname = record.name
-      try {
-        const response = await edgeOneApi.syncAccelerationDomainCname(this.provider, this.decodedZoneName, record.name)
-        message.success(response.data?.side_effects?.dns?.sync?.message || 'CNAME 已同步')
-        await this.load({ refresh: true })
-      } catch (error) {
-        message.error(errorMessage(error))
-      } finally {
-        this.syncingCname = ''
       }
     },
     async batchRemove() {
@@ -204,7 +243,7 @@ export default {
         for (const [index, record] of records.entries()) {
           this.deletingText = `正在删除 ${index + 1}/${records.length}`
           try {
-            await edgeOneApi.deleteAccelerationDomain(this.provider, this.decodedZoneName, record.name)
+            await edgeOneApi.deleteAccelerationDomain(this.provider, this.decodedZoneId, record.name)
           } catch (error) {
             failed.push(`${record.name}: ${error.message}`)
           }
@@ -226,32 +265,31 @@ export default {
       <div class="page-toolbar">
         <div>
           <a-button type="link" style="padding: 0" @click="$router.push(zonesPath)">返回站点</a-button>
-          <a-typography-title :level="3" style="margin: 4px 0">{{ displayZoneName }}</a-typography-title>
+          <a-typography-title :level="3" style="margin: 4px 0">{{ displayZoneName || decodedZoneId }}</a-typography-title>
           <a-typography-text type="secondary">EdgeOne 加速域名</a-typography-text>
         </div>
         <div class="page-actions">
           <a-button :loading="loading" :disabled="saving || deleting" @click="load({ refresh: true })">刷新</a-button>
-          <a-button v-if="!notFound" type="primary" :disabled="saving || deleting" @click="create">添加加速域名</a-button>
+          <a-button v-if="!notFound" type="primary" :disabled="saving || deleting || !displayZoneName" @click="create">添加加速域名</a-button>
         </div>
       </div>
-      <a-result v-if="notFound" status="404" title="站点不存在或未配置" :sub-title="decodedZoneName">
+      <a-result v-if="notFound" status="404" title="站点不存在或未配置" :sub-title="decodedZoneId">
         <template #extra><a-button type="primary" @click="$router.push(zonesPath)">返回 EdgeOne</a-button></template>
       </a-result>
       <template v-else>
       <a-alert v-if="deletingText" type="warning" show-icon style="margin-bottom: 16px" :message="deletingText" />
-      <a-alert v-if="cnameStatusWarning" type="warning" show-icon style="margin-bottom: 16px" message="CNAME 状态检查失败，已显示基础状态。" />
       <BatchToolbar :count="selectedRecords.length" :deleting="deleting" delete-text="批量删除" @delete="askBatchRemove" @clear="clearSelection" />
       <EdgeOneRecordTable
         :records="records"
         :loading="loading"
-        :syncing-cname="syncingCname"
+        :pagination="pagination"
         :selection-reset-key="selectionResetKey"
         empty-text="暂无匹配的加速域名"
         @edit="edit"
         @status="askStatus"
         @certificate="configureCertificate"
-        @sync-cname="syncCname"
         @delete="askRemove"
+        @change="handleTableChange"
         @selection-change="selectedRecords = $event"
       />
       <a-modal v-model:open="showForm" :title="editing ? '编辑加速域名' : '添加加速域名'" :footer="null" destroy-on-close>

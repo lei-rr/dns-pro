@@ -6,7 +6,6 @@ namespace app\service\edgeone;
 
 use app\exception\ApiException;
 use TencentCloud\Teo\V20220901\Models\AccelerationDomain;
-use TencentCloud\Teo\V20220901\Models\CnameStatus;
 use TencentCloud\Teo\V20220901\Models\Zone;
 
 class EdgeOneMapper
@@ -15,7 +14,7 @@ class EdgeOneMapper
     {
         return [
             'offset' => (int) ($filters['offset'] ?? 0),
-            'limit' => (int) ($filters['limit'] ?? 100),
+            'limit' => (int) ($filters['limit'] ?? 20),
             'refresh' => (bool) ($filters['refresh'] ?? false),
         ];
     }
@@ -24,7 +23,7 @@ class EdgeOneMapper
     {
         return [
             'offset' => (int) ($filters['offset'] ?? 0),
-            'limit' => (int) ($filters['limit'] ?? 100),
+            'limit' => (int) ($filters['limit'] ?? 20),
             'refresh' => (bool) ($filters['refresh'] ?? false),
         ];
     }
@@ -110,15 +109,6 @@ class EdgeOneMapper
             'certificate' => $this->presentCertificate($domain->Certificate ?? null),
             'created_on' => $domain->CreatedOn,
             'modified_on' => $domain->ModifiedOn,
-        ];
-    }
-
-    public function presentCnameStatus(CnameStatus $status): array
-    {
-        return [
-            'record_name' => $status->RecordName,
-            'cname' => $status->Cname,
-            'status' => $status->Status,
         ];
     }
 

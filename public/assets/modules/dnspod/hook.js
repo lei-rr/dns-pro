@@ -32,12 +32,26 @@ export default {
     { label: '移动', value: '移动' },
     { label: '境外', value: '境外' },
   ],
+  zoneStatusColumns: [
+    {
+      key: 'status',
+      title: '托管状态',
+      getStatus: (record) => record.status,
+    },
+    {
+      key: 'dns_status',
+      title: 'NS 状态',
+      getStatus: (record) => record.dns_status,
+    },
+  ],
   showLine: (lines) => lines.length > 0,
   zoneStatusLabel(status) {
+    if (status === '') return '正常'
     const k = String(status || '').toLowerCase()
     return zoneStatusLabels[k] || status || '-'
   },
   zoneStatusColor(status) {
+    if (status === '') return 'green'
     const k = String(status || '').toLowerCase()
     if (zoneStatusGreen.has(k)) return 'green'
     if (zoneStatusGold.has(k)) return 'gold'

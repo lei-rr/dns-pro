@@ -10,7 +10,7 @@ DNSPod / Cloudflare / Cloudflare for SaaS / Cloudflare Tunnel / 腾讯云 EdgeOn
 - **Cloudflare**：站点 / 解析记录 CRUD
 - **Cloudflare for SaaS（自定义主机名）**：创建 / 删除自定义主机名，DCV 验证、SSL 状态展示、自定义源服务器、默认回源（fallback origin）、境内优选 CNAME，自动同步到 DNSPod
 - **Cloudflare Tunnel（cloudflared）**：创建 / 删除隧道，多平台安装引导、隧道状态、令牌轮换，公共主机名路由（hostname → 本地服务），自动在 Cloudflare 区域建 CNAME
-- **EdgeOne**：腾讯云 EdgeOne 加速域名管理，CNAME 自动同步到 DNSPod
+- **EdgeOne**：腾讯云 EdgeOne 站点 / 加速域名管理，创建时可自动同步 CNAME 到 DNSPod
 - **优选域名**：维护一套境内优选 CNAME 候选清单
 
 ## 技术栈
@@ -61,7 +61,7 @@ DNSPod / Cloudflare / Cloudflare for SaaS / Cloudflare Tunnel / 腾讯云 EdgeOn
 
 EdgeOne 服务商不单独保存密钥，关联一个已配置的 DNSPod 服务商，复用其腾讯云密钥。该密钥需具备 EdgeOne（TEO）与 DNSPod 权限：
 
-- EdgeOne：`DescribeZones` / `DescribeAccelerationDomains` / `CreateAccelerationDomain` / `ModifyAccelerationDomain` / `ModifyAccelerationDomainStatuses` / `DeleteAccelerationDomains` / `ModifyHostsCertificate` / `CheckCnameStatus`
+- EdgeOne：`DescribeZones` / `DescribeAccelerationDomains` / `CreateAccelerationDomain` / `ModifyAccelerationDomain` / `ModifyAccelerationDomainStatuses` / `DeleteAccelerationDomains` / `ModifyHostsCertificate`
 - DNSPod：解析记录读写（用于把加速域名 CNAME 自动同步到 DNSPod）
 
 ### 服务商关联关系
@@ -93,6 +93,26 @@ chmod -R 755 data runtime
 
 访问首页登录，进入控制台后在「服务商」里添加你的 DNSPod / Cloudflare / EdgeOne / Cloudflare Tunnel 凭据。
 
+## 使用流程
+
+推荐按下面顺序初始化和使用系统：
+
+1. 在「服务商」中添加基础凭据：DNSPod / Cloudflare。
+2. 如果需要 Cloudflare for SaaS、Tunnel 或 EdgeOne，再为它们添加关联型 provider。
+3. 进入对应模块完成站点接入：
+   - DNSPod / Cloudflare：添加 zone 后管理解析记录
+   - EdgeOne：选择站点后管理加速域名、证书、启停状态
+   - Hostname：管理自定义主机名、DCV、默认回源与境内优选
+   - Cloudflared：管理隧道、令牌与公共主机名路由
+4. 如需自动写入 DNS，确保 provider 关联关系与目标权限已配置完整。
+
+典型场景：
+
+- **普通 DNS 托管**：直接使用 DNSPod / Cloudflare 模块管理 zone 和记录。
+- **Cloudflare for SaaS**：在 `hostname` 模块创建自定义主机名，并按需自动同步验证/优选记录到 DNSPod。
+- **Tunnel 暴露本地服务**：在 `cloudflared` 模块创建 tunnel，再为公共主机名绑定本地服务。
+- **EdgeOne 加速域名接入**：在 `edgeone` 模块管理加速域名，并在创建时自动把 CNAME 同步到 DNSPod。
+
 ## 目录结构
 
 ```
@@ -123,11 +143,30 @@ runtime/             缓存 / session / 日志（已 ignore）
 
 ## 架构说明
 
+项目的设计目标不是做“全家桶式平台框架”，而是在当前规模下保持：
+
+- 模块边界清楚
+- 职责稳定
+- 易于持续迭代
+- 少做无收益抽象
+
 - **模块边界**：每个 provider 是独立模块，互不横向依赖。跨模块复用通过下沉到中立层实现：
   - `service/dnspod/DnsPodSyncSupport` — edgeone / hostname 共用的「DNS 记录同步到 DNSPod」支撑（zone 最长后缀匹配、冲突清理、provider 查找）
   - `service/cloudflare/*` — cloudflared 复用 Cloudflare 的 ApiClient / ZoneService / DnsRecordService
   - `controller/concerns/ResolvesQueryParams` — 控制器共用的 query 参数解析
 - **关联型 provider**：edgeone / hostname / cloudflared 不单独保存密钥，而是关联一个基础 provider（dnspod 或 cloudflare）复用其凭据。
+- **后端分层**：`controller -> service -> repository -> support`
+  - `controller`：参数读取、校验、响应包装
+  - `service`：领域逻辑、provider API 调用、workflow 编排
+  - `repository`：本地 JSON 数据访问
+  - `support`：基础设施与共享技术能力
+- **前端分层**：`modules -> shared -> providers/routes`
+  - `modules/`：按 provider 组织业务页面与组件
+  - `shared/`：跨模块复用组件、错误处理、批量操作、请求工具
+  - `providers/` / `routes/`：provider 注册、状态管理与路由解析
+- **副作用契约**：DNS 自动同步 / 清理统一通过 `side_effects.dns` 返回，前端据此展示真实执行结果。
+
+更完整的开发与分层约定见：`ARCHITECTURE.md`
 
 ## 数据存储
 

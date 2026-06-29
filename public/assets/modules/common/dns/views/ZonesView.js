@@ -10,7 +10,19 @@ import { defaultProviderHook } from '../hook.js'
 export default {
   props: { provider: String, providerMeta: Object },
   data() {
-    return { zones: [], currentProviderMeta: this.providerMeta || null, providerHook: defaultProviderHook, keyword: '', loading: true, adding: false, deleting: false, showAddZone: false, addZoneName: '', loadRequestToken: 0 }
+    return {
+      zones: [],
+      zoneMeta: { page: 1, per_page: 20, total: 0 },
+      currentProviderMeta: this.providerMeta || null,
+      providerHook: defaultProviderHook,
+      keyword: '',
+      loading: true,
+      adding: false,
+      deleting: false,
+      showAddZone: false,
+      addZoneName: '',
+      loadRequestToken: 0,
+    }
   },
   computed: {
     providerName() { return this.currentProviderMeta?.name || this.provider },
@@ -20,20 +32,38 @@ export default {
       if (!keyword) return this.zones
       return this.zones.filter((zone) => zone.name.toLowerCase().includes(keyword))
     },
+    statusColumns() {
+      return (this.providerHook.zoneStatusColumns || defaultProviderHook.zoneStatusColumns).map((column) => ({
+        title: column.title,
+        key: column.key,
+        width: column.width || 120,
+        responsive: ['sm'],
+      }))
+    },
+    statusDefinitions() {
+      return this.providerHook.zoneStatusColumns || defaultProviderHook.zoneStatusColumns
+    },
     columns() {
       return [
         { title: '域名', dataIndex: 'name', key: 'name', width: 320 },
         { title: '服务商', key: 'provider', width: 140 },
-        { title: '状态', key: 'status', width: 120, responsive: ['sm'] },
+        ...this.statusColumns,
         { title: '操作', key: 'actions', width: 120, align: 'right' },
       ]
     },
-    pagination() { return tablePagination() },
+    pagination() {
+      return tablePagination({
+        current: this.zoneMeta.page || 1,
+        pageSize: this.zoneMeta.per_page || 20,
+        total: this.zoneMeta.total || 0,
+      })
+    },
   },
   async mounted() { await this.load() },
   watch: {
     provider() {
       this.currentProviderMeta = this.providerMeta || null
+      this.zoneMeta = { page: 1, per_page: 20, total: 0 }
       this.keyword = ''
       this.showAddZone = false
       this.addZoneName = ''
@@ -45,11 +75,20 @@ export default {
     routeBase() { return providerPath(this.provider) },
     zoneAvatar(zone) { return (String(zone || '').match(/[a-z0-9]/i)?.[0] || '#').toUpperCase() },
     avatarColor() { return resolveProviderAvatarColor(this.currentProviderMeta) },
-    zoneStatus(record) { return record.access_status || record.dns_status || record.status },
-    statusColor(record) { return this.providerHook.zoneStatusColor(this.zoneStatus(record)) },
-    statusText(record) { return this.providerHook.zoneStatusLabel(this.zoneStatus(record)) },
+    statusDefinition(key) { return this.statusDefinitions.find((item) => item.key === key) || null },
+    zoneStatus(record, column) { return (column?.getStatus || ((item) => item.status || item.access_status || item.dns_status))(record) },
+    statusColor(record, column) { return this.providerHook.zoneStatusColor(this.zoneStatus(record, column)) },
+    statusText(record, column) { return this.providerHook.zoneStatusLabel(this.zoneStatus(record, column)) },
     openAddZone() { this.addZoneName = ''; this.showAddZone = true },
     zoneRouteId(zone) { return zone.name },
+    handleTableChange(pagination) {
+      const nextPerPage = Number(pagination?.pageSize) || this.zoneMeta.per_page || 20
+      const pageSizeChanged = nextPerPage !== this.zoneMeta.per_page
+      const nextPage = pageSizeChanged ? 1 : (Number(pagination?.current) || 1)
+      if (nextPage === this.zoneMeta.page && nextPerPage === this.zoneMeta.per_page) return
+      this.zoneMeta = { ...this.zoneMeta, page: nextPage, per_page: nextPerPage }
+      this.load()
+    },
     async createZone() {
       const zone = this.addZoneName.trim().toLowerCase()
       if (!zone) { message.error('请输入域名'); return }
@@ -99,10 +138,19 @@ export default {
           this.currentProviderMeta = providers.find((provider) => provider.id === this.provider) || null
         }
         if (requestToken !== this.loadRequestToken) return
-        const zones = await dnsApi.zones(this.provider, options)
+        const zones = await dnsApi.zones(this.provider, {
+          page: this.zoneMeta.page,
+          per_page: this.zoneMeta.per_page,
+          ...options,
+        })
         if (requestToken !== this.loadRequestToken) return
         this.providerHook = resolveProviderHook(this.currentProviderMeta?.type || this.provider)
         this.zones = zones.data
+        this.zoneMeta = {
+          page: zones.meta?.page || this.zoneMeta.page,
+          per_page: zones.meta?.per_page || this.zoneMeta.per_page,
+          total: zones.meta?.total || 0,
+        }
         if (options.refresh) message.success('已刷新')
       } catch (error) {
         if (requestToken !== this.loadRequestToken) return
@@ -125,11 +173,11 @@ export default {
           <a-button v-if="capabilities.createZone" type="primary" :disabled="loading || deleting" @click="openAddZone">添加域名</a-button>
         </div>
       </div>
-      <a-table :columns="columns" :data-source="filteredZones" :row-key="zone => zone.provider + zone.name" :loading="loading" :pagination="pagination" size="middle" :scroll="{ x: 680 }" :locale="{ emptyText: '暂无域名' }">
+      <a-table :columns="columns" :data-source="filteredZones" :row-key="zone => zone.provider + zone.name" :loading="loading" :pagination="pagination" size="middle" :scroll="{ x: 820 }" :locale="{ emptyText: '暂无域名' }" @change="handleTableChange">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'"><a-space><a-avatar size="small" :style="{ background: avatarColor() }">{{ zoneAvatar(record.name) }}</a-avatar><router-link :to="routeBase() + '/' + encodeURIComponent(zoneRouteId(record))">{{ record.name }}</router-link></a-space></template>
           <template v-else-if="column.key === 'provider'"><a-tag>{{ providerName }}</a-tag></template>
-          <template v-else-if="column.key === 'status'"><a-tag :color="statusColor(record)">{{ statusText(record) }}</a-tag></template>
+          <template v-else-if="statusColumns.some(item => item.key === column.key)"><a-tag :color="statusColor(record, statusDefinition(column.key))">{{ statusText(record, statusDefinition(column.key)) }}</a-tag></template>
           <template v-else-if="column.key === 'actions'"><a-space size="small"><router-link :to="routeBase() + '/' + encodeURIComponent(zoneRouteId(record))">管理</router-link><a-dropdown v-if="capabilities.deleteZone"><a-button type="link" size="small" style="padding: 0">更多</a-button><template #overlay><a-menu><a-menu-item danger @click="askRemove(record)">删除</a-menu-item></a-menu></template></a-dropdown></a-space></template>
         </template>
       </a-table>

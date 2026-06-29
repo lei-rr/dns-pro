@@ -5,6 +5,7 @@ import { providerPath } from '../../../../routes/paths.js'
 import { resolveProviderHook } from '../../../../providers/registry.js'
 import { chooseJsonFile, downloadJson } from '../../../../shared/utils/files.js'
 import { errorMessage } from '../../../../shared/utils/errors.js'
+import { tablePagination } from '../../../../shared/utils/pagination.js'
 import BatchToolbar from '../../../../shared/components/BatchToolbar.js'
 import RecordForm from '../components/RecordForm.js'
 import RecordTable from '../components/RecordTable.js'
@@ -15,7 +16,27 @@ export default {
   components: { BatchToolbar, RecordForm, RecordTable },
   props: { provider: String, domain: String, providerMeta: Object },
   data() {
-    return { records: [], selectedRecords: [], selectionResetKey: 0, lines: [], currentProviderMeta: this.providerMeta || null, currentDomainName: '', providerHook: defaultProviderHook, editing: null, showForm: false, keyword: '', loading: true, saving: false, deleting: false, deletingText: '', loadRequestToken: 0 }
+    return {
+      records: [],
+      recordMeta: { page: 1, per_page: 20, total: 0 },
+      selectedRecords: [],
+      selectionResetKey: 0,
+      lines: [],
+      currentProviderMeta: this.providerMeta || null,
+      currentDomainName: '',
+      providerHook: defaultProviderHook,
+      editing: null,
+      showForm: false,
+      keyword: '',
+      loading: true,
+      saving: false,
+      deleting: false,
+      deletingText: '',
+      importMode: 'create',
+      showImportConfirm: false,
+      pendingImportRecords: [],
+      loadRequestToken: 0,
+    }
   },
   computed: {
     decodedDomain() { return decodeURIComponent(this.domain) },
@@ -25,6 +46,20 @@ export default {
     capabilities() { return this.providerHook.capabilities || defaultProviderHook.capabilities },
     typeOptions() {
       return [...new Set(this.records.map((record) => record.type).filter(Boolean))].sort().map((type) => ({ label: type, value: type }))
+    },
+    importPreviewText() {
+      const preview = this.pendingImportRecords.slice(0, 8).map((record, index) => `${index + 1}. ${record.name || '@'} ${record.type || '-'} ${record.value || ''}`).join('\n')
+      return this.pendingImportRecords.length > 8
+        ? `${preview}\n... 另有 ${this.pendingImportRecords.length - 8} 条`
+        : preview
+    },
+    pagination() {
+      return tablePagination({
+        current: this.recordMeta.page || 1,
+        pageSize: this.recordMeta.per_page || 20,
+        total: this.recordMeta.total || 0,
+        defaultPageSize: 20,
+      })
     },
     filteredRecords() {
       const keyword = this.keyword.trim().toLowerCase()
@@ -45,8 +80,17 @@ export default {
       this.clearSelection()
       this.editing = null
       this.showForm = false
+      this.recordMeta = { page: 1, per_page: 20, total: 0 }
       this.keyword = ''
       this.currentDomainName = ''
+      this.load()
+    },
+    handleTableChange(pagination) {
+      const nextPerPage = Number(pagination?.pageSize) || this.recordMeta.per_page || 20
+      const pageSizeChanged = nextPerPage !== this.recordMeta.per_page
+      const nextPage = pageSizeChanged ? 1 : (Number(pagination?.current) || 1)
+      if (nextPage === this.recordMeta.page && nextPerPage === this.recordMeta.per_page) return
+      this.recordMeta = { ...this.recordMeta, page: nextPage, per_page: nextPerPage }
       this.load()
     },
     async load(options = {}) {
@@ -61,9 +105,18 @@ export default {
         }
         if (requestToken !== this.loadRequestToken) return
         this.currentDomainName = this.decodedDomain
-        const records = await dnsApi.records(this.provider, this.recordsTarget, options)
+        const records = await dnsApi.records(this.provider, this.recordsTarget, {
+          page: this.recordMeta.page,
+          per_page: this.recordMeta.per_page,
+          ...options,
+        })
         if (requestToken !== this.loadRequestToken) return
         this.records = records.data
+        this.recordMeta = {
+          page: records.meta?.page || this.recordMeta.page,
+          per_page: records.meta?.per_page || this.recordMeta.per_page,
+          total: records.meta?.total || 0,
+        }
         this.providerHook = resolveProviderHook(this.providerType)
         this.lines = this.providerHook.recordLines || []
       } catch (error) {
@@ -181,31 +234,59 @@ export default {
         const records = await chooseJsonFile()
         if (!records) return
         if (!Array.isArray(records)) throw new Error('导入文件必须是记录数组')
-        await this.confirmImport(records)
+        this.pendingImportRecords = records
+        this.importMode = 'create'
+        this.showImportConfirm = true
       } catch (error) {
         message.error(errorMessage(error))
       }
     },
-    async confirmImport(records) {
-      const preview = records.slice(0, 8).map((record, index) => `${index + 1}. ${record.name || '@'} ${record.type || '-'} ${record.value || ''}`).join('\n')
-      const more = records.length > 8 ? `\n... 另有 ${records.length - 8} 条` : ''
-      modal.confirm({
-        title: '预检导入解析记录',
-        width: 720,
-        content: Vue.h('div', { style: 'white-space: pre-wrap' }, `将向 ${this.decodedDomain} 创建 ${records.length} 条解析记录：\n\n${preview}${more}\n\n导入会逐条调用云服务商接口，已存在或格式不支持的记录会在结果中提示失败。`),
-        okText: '导入',
-        cancelText: '取消',
-        onOk: () => this.batchImport(records),
-      })
+    async loadAllRecordsForImport() {
+      const all = []
+      let page = 1
+      const perPage = 20
+
+      while (true) {
+        const response = await dnsApi.records(this.provider, this.recordsTarget, { page, per_page: perPage, refresh: page === 1 })
+        all.push(...(response.data || []))
+        const totalPages = Number(response.meta?.total_pages || 1)
+        if (page >= totalPages) break
+        page += 1
+      }
+
+      return all
     },
-    async batchImport(records) {
+    importMatchKey(record) {
+      const type = String(record.type || record.record_type || '').toUpperCase()
+      const name = String(record.name || record.subdomain || '@').trim().toLowerCase()
+      const line = String(record.line || record.record_line || '默认').trim()
+      return `${name}__${type}__${line}`
+    },
+    async confirmImport() {
+      const records = this.pendingImportRecords
+      if (!records.length) return
+      this.showImportConfirm = false
+      await this.batchImport(records, this.importMode)
+    },
+    async batchImport(records, mode = 'create') {
       this.saving = true
       const failed = []
       try {
+        const existingRecords = mode === 'overwrite' ? await this.loadAllRecordsForImport() : []
+        const existingMap = new Map(existingRecords.map((record) => [this.importMatchKey(record), record]))
+
         for (const [index, record] of records.entries()) {
           this.deletingText = `正在导入 ${index + 1}/${records.length}`
           try {
-            await dnsApi.createRecord(this.provider, this.recordsTarget, record, { zoneName: this.displayDomain })
+            const key = this.importMatchKey(record)
+            const existing = mode === 'overwrite' ? existingMap.get(key) : null
+            if (existing?.id) {
+              const updated = await dnsApi.updateRecord(this.provider, this.recordsTarget, existing.id, { ...existing, ...record }, { zoneName: this.displayDomain })
+              existingMap.set(key, { ...(updated?.data || existing), ...record, id: updated?.data?.id || existing.id })
+            } else {
+              const created = await dnsApi.createRecord(this.provider, this.recordsTarget, record, { zoneName: this.displayDomain })
+              existingMap.set(key, { ...record, id: created?.data?.id || '' })
+            }
           } catch (error) {
             failed.push(`第 ${index + 1} 条 ${record.name || ''} ${record.type || ''}: ${error.message}`)
           }
@@ -216,6 +297,7 @@ export default {
       } finally {
         this.saving = false
         this.deletingText = ''
+        this.pendingImportRecords = []
       }
     },
   },
@@ -241,15 +323,29 @@ export default {
         :records="filteredRecords"
         :provider-hook="providerHook"
         :loading="loading"
+        :pagination="pagination"
         :selection-reset-key="selectionResetKey"
         :type-options="typeOptions"
         empty-text="暂无匹配的解析记录"
         @edit="edit"
         @delete="askRemove"
+        @change="handleTableChange"
         @selection-change="selectedRecords = $event"
       />
       <a-modal v-model:open="showForm" :title="editing ? '编辑解析记录' : '添加解析记录'" :footer="null" destroy-on-close>
         <RecordForm :model-value="editing" :saving="saving" :provider-hook="providerHook" :lines="lines" @save="save" @cancel="showForm = false" @delete="record => { showForm = false; askRemove(record) }" />
+      </a-modal>
+      <a-modal v-model:open="showImportConfirm" title="预检导入解析记录" :confirm-loading="saving" ok-text="导入" cancel-text="取消" @ok="confirmImport">
+        <a-form layout="vertical">
+          <a-form-item label="导入模式">
+            <a-radio-group v-model:value="importMode">
+              <a-radio value="create">仅新增</a-radio>
+              <a-radio value="overwrite">新增或覆盖</a-radio>
+            </a-radio-group>
+          </a-form-item>
+        </a-form>
+        <a-alert type="info" show-icon :message="importMode === 'overwrite' ? '按 主机记录 + 类型 + 线路 匹配；已存在则更新，不存在则新增。' : '逐条新增；已存在或格式不支持的记录会提示失败。'" style="margin-bottom: 16px" />
+        <div style="white-space: pre-wrap">{{ importPreviewText }}</div>
       </a-modal>
     </section>
   `,

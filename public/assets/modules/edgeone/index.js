@@ -18,7 +18,7 @@ export default {
       childId,
       childType: 'edgeone-zone',
       component: EdgeOneRecordsView,
-      props: { zoneName: childId },
+      props: { zoneId: childId },
     }
   },
   menuEntries(provider) {

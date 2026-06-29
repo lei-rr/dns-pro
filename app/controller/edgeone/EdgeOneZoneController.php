@@ -24,8 +24,13 @@ class EdgeOneZoneController
 
         return ApiResponse::data($this->edgeone->zones($providerId, [
             'offset' => (int) ($query['offset'] ?? 0),
-            'limit' => (int) ($query['limit'] ?? 100),
+            'limit' => (int) ($query['limit'] ?? 20),
             'refresh' => filter_var($query['refresh'] ?? false, FILTER_VALIDATE_BOOLEAN),
         ]));
+    }
+
+    public function show(string $providerId, string $zoneId): Response
+    {
+        return ApiResponse::data($this->edgeone->zoneById($providerId, $zoneId));
     }
 }

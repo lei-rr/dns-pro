@@ -12,6 +12,54 @@ const endpoints = {
   record: (provider, zone, record) => `${zoneBase(provider, zone)}/records/${path(record)}`,
 }
 
+function normalizedPaging(options = {}, defaultPerPage = 20) {
+  const page = Math.max(1, Number(options.page) || 1)
+  const perPage = Math.max(1, Number(options.per_page) || defaultPerPage)
+  return { page, per_page: perPage }
+}
+
+function zoneQuery(provider, options = {}) {
+  const type = providerType(provider)
+  const paging = normalizedPaging(options, 20)
+  const keyword = String(options.keyword || '').trim()
+
+  if (type === 'cloudflare') {
+    return {
+      page: paging.page,
+      per_page: paging.per_page,
+      name: keyword || undefined,
+    }
+  }
+
+  return {
+    offset: (paging.page - 1) * paging.per_page,
+    limit: paging.per_page,
+    keyword,
+  }
+}
+
+function recordQuery(provider, options = {}) {
+  const type = providerType(provider)
+  const paging = normalizedPaging(options, 20)
+
+  if (type === 'cloudflare') {
+    return {
+      page: paging.page,
+      per_page: paging.per_page,
+      type: options.type,
+      search: options.search,
+    }
+  }
+
+  return {
+    offset: (paging.page - 1) * paging.per_page,
+    limit: paging.per_page,
+    subdomain: options.subdomain,
+    record_type: options.record_type,
+    keyword: options.keyword,
+  }
+}
+
 function recordPayload(provider, zone, data, options = {}) {
   if (providerType(provider) === 'cloudflare') {
     const zoneName = options.zoneName || zone
@@ -39,6 +87,9 @@ function recordPayload(provider, zone, data, options = {}) {
     subdomain: data.name ?? data.subdomain ?? '@',
     ttl: data.ttl,
     mx: data.priority ?? data.mx,
+    weight: data.weight,
+    record_line_id: data.record_line_id,
+    status: data.status ? String(data.status).toUpperCase() : undefined,
     remark: data.remark,
   }
 }
@@ -79,18 +130,25 @@ function presentRecord(provider, record) {
       priority: record.priority,
     }
   }
-  return { ...record, provider, provider_type: 'dnspod', priority: record.mx, remark: record.remark || '' }
+  return {
+    ...record,
+    provider,
+    provider_type: 'dnspod',
+    priority: record.mx,
+    record_line_id: record.record_line_id ?? record.line_id,
+    remark: record.remark || '',
+  }
 }
 
 export const dnsApi = {
   zones: async (provider, options) => {
-    const response = unwrapItems(await http.get(endpoints.zones(provider), withRefresh({ params: options, refresh: options?.refresh })))
+    const response = unwrapItems(await http.get(endpoints.zones(provider), withRefresh({ params: zoneQuery(provider, options), refresh: options?.refresh })))
     return { ...response, data: response.data.map((domain) => presentDomain(provider, domain)) }
   },
   createZone: (provider, data) => http.post(endpoints.zones(provider), providerType(provider) === 'cloudflare' ? { name: data.domain } : data),
   deleteZone: (provider, zone) => http.delete(endpoints.zone(provider, zone)),
   records: async (provider, domain, options) => {
-    const response = unwrapItems(await http.get(endpoints.records(provider, domain), withRefresh({ params: options, refresh: options?.refresh })))
+    const response = unwrapItems(await http.get(endpoints.records(provider, domain), withRefresh({ params: recordQuery(provider, options), refresh: options?.refresh })))
     return { ...response, data: response.data.map((record) => presentRecord(provider, record)) }
   },
   createRecord: (provider, domain, data, options) => http.post(endpoints.records(provider, domain), recordPayload(provider, domain, data, options)),

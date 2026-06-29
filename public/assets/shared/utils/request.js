@@ -35,7 +35,13 @@ export function withRefresh(options = {}) {
 
 export function unwrapItems(response) {
   if (Array.isArray(response?.data)) return { ...response, data: response.data }
-  if (Array.isArray(response?.data?.items)) return { ...response, data: response.data.items, meta: response.data }
+  if (Array.isArray(response?.data?.items)) {
+    return {
+      ...response,
+      data: response.data.items,
+      meta: response.data.meta || response.data.pagination || response.data,
+    }
+  }
   return response
 }
 

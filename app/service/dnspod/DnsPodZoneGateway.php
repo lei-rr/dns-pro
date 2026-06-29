@@ -151,7 +151,9 @@ class DnsPodZoneGateway
             'name' => $zone->Name,
             'punycode' => $zone->Punycode,
             'status' => $zone->Status,
-            'dns_status' => $zone->DNSStatus,
+            'dns_status' => property_exists($zone, 'DnsStatus')
+                ? $zone->DnsStatus
+                : (property_exists($zone, 'DNSStatus') ? $zone->DNSStatus : null),
             'grade' => $zone->Grade,
             'grade_title' => $zone->GradeTitle,
             'group_id' => $zone->GroupId,
