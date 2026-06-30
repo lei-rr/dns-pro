@@ -16,6 +16,7 @@ export default {
       currentProviderMeta: this.providerMeta || null,
       providerHook: defaultProviderHook,
       keyword: '',
+      appliedKeyword: '',
       loading: true,
       adding: false,
       deleting: false,
@@ -28,9 +29,7 @@ export default {
     providerName() { return this.currentProviderMeta?.name || this.provider },
     capabilities() { return this.providerHook.capabilities || defaultProviderHook.capabilities },
     filteredZones() {
-      const keyword = this.keyword.trim().toLowerCase()
-      if (!keyword) return this.zones
-      return this.zones.filter((zone) => zone.name.toLowerCase().includes(keyword))
+      return this.zones
     },
     statusColumns() {
       return (this.providerHook.zoneStatusColumns || defaultProviderHook.zoneStatusColumns).map((column) => ({
@@ -65,11 +64,17 @@ export default {
       this.currentProviderMeta = this.providerMeta || null
       this.zoneMeta = { page: 1, per_page: 20, total: 0 }
       this.keyword = ''
+      this.appliedKeyword = ''
       this.showAddZone = false
       this.addZoneName = ''
       this.load()
     },
     providerMeta(value) { this.currentProviderMeta = value || null },
+    keyword(value) {
+      if (String(value || '').trim() === '' && this.appliedKeyword !== '') {
+        this.applyKeyword()
+      }
+    },
   },
   methods: {
     routeBase() { return providerPath(this.provider) },
@@ -79,6 +84,13 @@ export default {
     zoneStatus(record, column) { return (column?.getStatus || ((item) => item.status || item.access_status || item.dns_status))(record) },
     statusColor(record, column) { return this.providerHook.zoneStatusColor(this.zoneStatus(record, column)) },
     statusText(record, column) { return this.providerHook.zoneStatusLabel(this.zoneStatus(record, column)) },
+    applyKeyword() {
+      const nextKeyword = this.keyword.trim()
+      if (nextKeyword === this.appliedKeyword && this.zoneMeta.page === 1) return
+      this.appliedKeyword = nextKeyword
+      this.zoneMeta = { ...this.zoneMeta, page: 1 }
+      this.load()
+    },
     openAddZone() { this.addZoneName = ''; this.showAddZone = true },
     zoneRouteId(zone) { return zone.name },
     handleTableChange(pagination) {
@@ -106,9 +118,10 @@ export default {
     },
     showCreateResult(result) {
       const nameServers = result.name_servers || []
+      const summary = result.message || `域名 ${result.name || this.addZoneName.trim().toLowerCase()} 已添加`
       modal.info({
         title: '域名已添加',
-        content: nameServers.length ? `${result.message}\n\n请将域名 NS 修改为：\n${nameServers.join('\n')}` : `${result.message}\n\n当前接口未返回 NS，请到 ${result.provider_name || this.providerName} 控制台查看应修改的 NS。`,
+        content: nameServers.length ? `${summary}\n\n请将域名 NS 修改为：\n${nameServers.join('\n')}` : `${summary}\n\n当前接口未返回 NS，请到 ${result.provider_name || this.providerName} 控制台查看应修改的 NS。`,
         okText: '知道了',
       })
     },
@@ -141,6 +154,7 @@ export default {
         const zones = await dnsApi.zones(this.provider, {
           page: this.zoneMeta.page,
           per_page: this.zoneMeta.per_page,
+          keyword: this.appliedKeyword,
           ...options,
         })
         if (requestToken !== this.loadRequestToken) return
@@ -168,7 +182,7 @@ export default {
           <a-typography-text type="secondary">选择域名进入解析管理。</a-typography-text>
         </div>
         <div class="page-actions">
-          <a-input-search v-model:value="keyword" placeholder="搜索域名" allow-clear />
+          <a-input-search v-model:value="keyword" placeholder="搜索域名" allow-clear @search="applyKeyword" />
           <a-button :loading="loading" :disabled="deleting" @click="load({ refresh: true })">刷新</a-button>
           <a-button v-if="capabilities.createZone" type="primary" :disabled="loading || deleting" @click="openAddZone">添加域名</a-button>
         </div>

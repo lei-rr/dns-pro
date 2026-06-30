@@ -31,6 +31,10 @@ class HostnameValidate extends Validate
         'min_tls_version' => 'string|in:1.0,1.1,1.2,1.3',
         'origin' => 'require|string|max:253',
         'preferred_domain' => 'string|max:253',
+        'sync_target' => 'string|in:dnspod,cloudflare_dns',
+        'sync_provider_id' => 'string|max:64',
+        'sync_zone' => 'string|max:253',
+        'auto_preferred' => 'boolean',
     ];
 
     protected $field = [
@@ -44,6 +48,10 @@ class HostnameValidate extends Validate
         'min_tls_version' => '最低 TLS 版本',
         'origin' => '默认回源域名',
         'preferred_domain' => '优选域名',
+        'sync_target' => '同步目标',
+        'sync_provider_id' => '同步服务商',
+        'sync_zone' => '同步域名',
+        'auto_preferred' => '自动优选',
     ];
 
     public function sceneListZones(): self
@@ -63,7 +71,7 @@ class HostnameValidate extends Validate
 
     public function sceneStore(): self
     {
-        return $this->only(['hostname', 'custom_origin_server', 'method', 'min_tls_version', 'preferred_domain'])
+        return $this->only(['hostname', 'custom_origin_server', 'method', 'min_tls_version', 'preferred_domain', 'sync_target', 'sync_provider_id', 'sync_zone', 'auto_preferred'])
             ->remove('custom_origin_server', 'require')
             ->remove('method', 'require')
             ->remove('min_tls_version', 'require');
@@ -71,7 +79,7 @@ class HostnameValidate extends Validate
 
     public function sceneUpdate(): self
     {
-        return $this->only(['custom_origin_server', 'method', 'min_tls_version', 'preferred_domain'])
+        return $this->only(['custom_origin_server', 'method', 'min_tls_version', 'preferred_domain', 'sync_target', 'sync_provider_id', 'sync_zone', 'auto_preferred'])
             ->remove('custom_origin_server', 'require')
             ->remove('method', 'require')
             ->remove('min_tls_version', 'require');

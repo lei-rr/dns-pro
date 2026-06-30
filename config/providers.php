@@ -37,12 +37,11 @@ return [
         'hostname' => [
             'type' => 'hostname',
             'name' => 'Hostname',
-            'fields' => ['cloudflare_provider', 'dnspod_provider'],
+            'fields' => ['cloudflare_provider'],
             'required' => ['cloudflare_provider'],
             'secret_fields' => [],
             'labels' => [
                 'cloudflare_provider' => '关联 Cloudflare API',
-                'dnspod_provider' => '关联 DNSPod API',
             ],
         ],
         'cloudflared' => [

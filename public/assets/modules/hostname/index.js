@@ -1,6 +1,7 @@
 import { ZonesView } from '../common/dns/index.js'
 import HostnamesView from './views/HostnamesView.js'
 import hook from './hook.js'
+import { providerBrand } from '../../providers/branding.js'
 import { providerPath } from '../../routes/paths.js'
 
 export default {
@@ -25,13 +26,14 @@ export default {
     return [{ key: provider.id, label: provider.name, path: providerPath(provider.id) }]
   },
   cards(provider) {
+    const brand = providerBrand('hostname')
     return [{
       ...provider,
       path: providerPath(provider.id),
       description: '查看 Cloudflare for SaaS 自定义主机名',
       tag: 'Hostname',
-      color: 'purple',
-      avatarColor: '#722ed1',
+      color: brand.color,
+      avatarColor: brand.avatarColor,
     }]
   },
 }

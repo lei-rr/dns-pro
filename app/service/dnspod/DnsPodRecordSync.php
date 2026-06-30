@@ -52,10 +52,12 @@ class DnsPodRecordSync
                     continue;
                 }
                 $currentRemark = (string) ($match['remark'] ?? '');
-                if ($currentRemark === $expectedRemark) {
+                $currentTtl = (int) ($match['ttl'] ?? 600);
+                $expectedTtl = (int) ($payload['ttl'] ?? 600);
+                if ($currentRemark === $expectedRemark && $currentTtl === $expectedTtl) {
                     return $base + ['status' => 'unchanged', 'record_id' => (string) ($match['id'] ?? '')];
                 }
-                // value 相同但 remark 不同 → 仅更新 remark
+                // value 相同但 remark/ttl 不同 → 更新记录
                 $recordId = (string) ($match['id'] ?? '');
                 if ($recordId !== '') {
                     $this->records->update($dnspodProviderId, $dnspodZone, $recordId, $payload);

@@ -184,7 +184,7 @@ export default {
       }
       const content = this.dnspodLinked
         ? `确认删除 ${record.name}？关联的 DNSPod CNAME 记录会一并清理。`
-        : `确认删除 ${record.name}？删除后将同步到 EdgeOne。`
+        : `确认删除 ${record.name}？删除后将从 EdgeOne 移除。`
       modal.confirm({
         title: '删除加速域名',
         content,
@@ -200,9 +200,12 @@ export default {
         message.error('只能删除已停用的加速域名')
         return
       }
+      const content = this.dnspodLinked
+        ? `确认删除已选的 ${this.selectedRecords.length} 个加速域名？关联的 DNSPod CNAME 记录会按可用情况清理。`
+        : `确认删除已选的 ${this.selectedRecords.length} 个加速域名？删除后将从 EdgeOne 移除。`
       modal.confirm({
         title: '批量删除加速域名',
-        content: `确认删除已选的 ${this.selectedRecords.length} 个加速域名？删除后将同步到 EdgeOne。`,
+        content,
         okText: '批量删除',
         okType: 'danger',
         cancelText: '取消',

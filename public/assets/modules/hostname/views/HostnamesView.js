@@ -1,5 +1,7 @@
 import { hostnameApi, preferredDomainApi } from '../utils/api.js'
+import { dnsApi } from '../../common/dns/api.js'
 import { statusColor, statusLabel, formatDate } from '../utils/hostname.js'
+import { providerAvatarColor } from '../../../providers/branding.js'
 import { loadProviders } from '../../../providers/store.js'
 import { providerPath } from '../../../routes/paths.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
@@ -26,8 +28,12 @@ export default {
       detailRequestToken: 0,
       listLoadRequestToken: 0,
       preferredLoadRequestToken: 0,
+      syncZoneLoadRequestToken: 0,
       refreshing: {},
       providerMeta: null,
+      allProviders: [],
+      dnspodZones: [],
+      cloudflareDnsZones: [],
       selectedHostname: null,
       showCreateForm: false,
       showDetails: false,
@@ -39,7 +45,19 @@ export default {
   computed: {
     decodedZoneName() { return decodeURIComponent(this.zoneName) },
     zonesPath() { return providerPath(this.provider) },
-    dnspodLinked() { return Boolean(this.providerMeta?.dnspod_provider) },
+    hostnameCloudflareProvider() {
+      const providerId = this.providerMeta?.cloudflare_provider || ''
+      if (!providerId) return null
+      return this.allProviders.find((provider) => provider.id === providerId && provider.type === 'cloudflare' && provider.configured) || null
+    },
+    dnspodProviders() {
+      return this.allProviders.filter((provider) => provider.type === 'dnspod' && provider.configured)
+    },
+    cloudflareProviders() {
+      return this.hostnameCloudflareProvider ? [this.hostnameCloudflareProvider] : []
+    },
+    dnspodLinked() { return this.dnspodProviders.length > 0 },
+    cloudflareDnsLinked() { return this.cloudflareProviders.length > 0 },
     /**
      * 当前 zone 下已使用过的回源服务器（去重，供新增/编辑表单下拉复用）
      */
@@ -70,7 +88,7 @@ export default {
   },
   async mounted() { await this.load(); this.loadPreferredDomains() },
   watch: {
-    provider() { this.resetContextState(); this.providerMeta = null; this.load(); this.loadPreferredDomains() },
+    provider() { this.resetContextState(); this.providerMeta = null; this.dnspodZones = []; this.cloudflareDnsZones = []; this.load(); this.loadPreferredDomains() },
     zoneName() { this.resetContextState(); this.load() },
   },
   methods: {
@@ -80,6 +98,10 @@ export default {
 
     hostnameAvatar(hostname) {
       return (String(hostname || '').match(/[a-z0-9]/i)?.[0] || '#').toUpperCase()
+    },
+
+    hostnameAvatarColor() {
+      return providerAvatarColor('hostname')
     },
 
     resetContextState() {
@@ -100,7 +122,9 @@ export default {
         if (!this.providerMeta) {
           const providers = await loadProviders()
           if (requestToken !== this.listLoadRequestToken) return
+          this.allProviders = providers || []
           this.providerMeta = providers.find((p) => p.id === this.provider) || null
+          await this.loadSyncZones(requestToken)
         }
         if (requestToken !== this.listLoadRequestToken) return
         const response = await hostnameApi.hostnames(this.provider, this.decodedZoneName, { page: 1, per_page: 100, ...options })
@@ -118,6 +142,49 @@ export default {
       } finally {
         if (requestToken === this.listLoadRequestToken) this.loading = false
       }
+    },
+
+    async loadSyncZones(requestToken = this.listLoadRequestToken) {
+      const zoneRequestToken = this.syncZoneLoadRequestToken + 1
+      this.syncZoneLoadRequestToken = zoneRequestToken
+
+      try {
+        const [dnspodZones, cloudflareDnsZones] = await Promise.all([
+          this.loadZonesForProviders(this.dnspodProviders),
+          this.loadZonesForProviders(this.cloudflareProviders),
+        ])
+
+        if (requestToken !== this.listLoadRequestToken || zoneRequestToken !== this.syncZoneLoadRequestToken) return
+        this.dnspodZones = dnspodZones
+        this.cloudflareDnsZones = cloudflareDnsZones
+      } catch {
+        if (requestToken !== this.listLoadRequestToken || zoneRequestToken !== this.syncZoneLoadRequestToken) return
+        this.dnspodZones = []
+        this.cloudflareDnsZones = []
+      }
+    },
+
+    async loadZonesForProvider(providerId) {
+      const zones = []
+      let page = 1
+
+      while (true) {
+        const response = await dnsApi.zones(providerId, { page, per_page: 100, refresh: page === 1 })
+        zones.push(...(response.data || []))
+        const totalPages = Number(response.meta?.total_pages || 1)
+        if (page >= totalPages) break
+        page += 1
+      }
+
+      return zones
+    },
+
+    async loadZonesForProviders(providers) {
+      const map = {}
+      for (const provider of providers || []) {
+        map[provider.id] = await this.loadZonesForProvider(provider.id)
+      }
+      return map
     },
 
     async loadPreferredDomains() {
@@ -171,12 +238,16 @@ export default {
         if (preferred) {
           payload.preferred_domain = preferred
         }
+        if (formData.sync_target) payload.sync_target = String(formData.sync_target).trim()
+        if (formData.sync_provider_id) payload.sync_provider_id = String(formData.sync_provider_id).trim()
+        if (formData.sync_zone) payload.sync_zone = String(formData.sync_zone).trim()
+        payload.auto_preferred = !!formData.autoPreferred
         if (!payload.hostname) {
           message.warning('请输入主机名')
           return
         }
 
-        const options = { autoSync: formData.autoSync && this.dnspodLinked }
+        const options = { autoSync: !!formData.sync_target }
         const response = await hostnameApi.createHostname(this.provider, this.decodedZoneName, payload, options)
         message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.sync, '自定义主机名已创建'))
         this.showCreateForm = false
@@ -206,9 +277,13 @@ export default {
             ? String(formData.custom_origin_server || '').trim()
             : '',
           preferred_domain: String(formData.preferred_domain || '').trim(),
+          sync_target: String(formData.sync_target || '').trim(),
+          sync_provider_id: String(formData.sync_provider_id || '').trim(),
+          sync_zone: String(formData.sync_zone || '').trim(),
+          auto_preferred: !!formData.autoPreferred,
         }
 
-        const options = { autoSync: formData.autoSync && this.dnspodLinked }
+        const options = { autoSync: !!formData.sync_target }
         const response = await hostnameApi.updateHostname(
           this.provider,
           this.decodedZoneName,
@@ -365,7 +440,7 @@ export default {
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'hostname'">
             <a-space size="small">
-              <a-avatar size="small" style="background: #722ed1">{{ hostnameAvatar(record.hostname) }}</a-avatar>
+              <a-avatar size="small" :style="{ background: hostnameAvatarColor() }">{{ hostnameAvatar(record.hostname) }}</a-avatar>
               <a @click="openDetails(record)">{{ record.hostname }}</a>
             </a-space>
           </template>
@@ -409,6 +484,11 @@ export default {
         :ok-text="editingHostname ? '保存' : '创建'"
         :confirm-loading="editingHostname ? savingEdit : creating"
         :dnspod-linked="dnspodLinked"
+        :cloudflare-dns-linked="cloudflareDnsLinked"
+        :dnspod-providers="dnspodProviders"
+        :cloudflare-dns-providers="cloudflareProviders"
+        :dnspod-zones="dnspodZones"
+        :cloudflare-dns-zones="cloudflareDnsZones"
         :origin-suggestions="originSuggestions"
         :preferred-domains="preferredDomains"
         :initial-value="editingHostname"

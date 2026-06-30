@@ -1,4 +1,5 @@
 import { cloudflaredApi } from '../utils/api.js'
+import { providerAvatarColor } from '../../../providers/branding.js'
 import { statusLabel, statusColor } from '../utils/format.js'
 import { providerChildPath } from '../../../routes/paths.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
@@ -39,6 +40,12 @@ export default {
   methods: {
     statusLabel,
     statusColor,
+    tunnelAvatar(name) {
+      return (String(name || '').match(/[a-z0-9]/i)?.[0] || 'T').toUpperCase()
+    },
+    tunnelAvatarColor() {
+      return providerAvatarColor('cloudflared')
+    },
     detailPath(tunnel) { return providerChildPath(this.provider, tunnel.id) },
 
     async load(options = {}) {
@@ -130,7 +137,10 @@ export default {
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'">
-            <router-link :to="detailPath(record)">{{ record.name }}</router-link>
+            <a-space>
+              <a-avatar size="small" :style="{ background: tunnelAvatarColor() }">{{ tunnelAvatar(record.name) }}</a-avatar>
+              <router-link :to="detailPath(record)">{{ record.name }}</router-link>
+            </a-space>
           </template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>

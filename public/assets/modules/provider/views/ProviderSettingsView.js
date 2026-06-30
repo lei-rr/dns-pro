@@ -253,6 +253,7 @@ export default {
       if (provider.type === 'cloudflare') {
         return this.providers.filter((item) =>
           (item.type === 'hostname' && item.cloudflare_provider === provider.id) ||
+          (item.type === 'hostname' && item.cloudflare_dns_provider === provider.id) ||
           (item.type === 'cloudflared' && item.cloudflare_provider === provider.id)
         )
       }

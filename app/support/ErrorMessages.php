@@ -69,7 +69,6 @@ class ErrorMessages
         'edgeone_zone_not_found'                           => 'EdgeOne 站点不存在',
         'edgeone_zone_list_failed'                         => 'EdgeOne 站点列表获取失败',
         'edgeone_cname_empty'                              => 'EdgeOne 加速域名尚未生成 CNAME',
-        'edgeone_cname_status_failed'                      => 'EdgeOne CNAME 解析状态查询失败',
         'edgeone_domain_zone_mismatch'                     => '加速域名不属于该 DNSPod 域名',
         'edgeone_acceleration_domain_not_found'            => 'EdgeOne 加速域名不存在',
         'edgeone_acceleration_domain_create_failed'        => 'EdgeOne 加速域名创建失败',
@@ -82,11 +81,15 @@ class ErrorMessages
         // Hostname
         'hostname_provider_not_found'              => 'Hostname 服务商不存在',
         'hostname_cloudflare_provider_missing'     => 'Hostname 未关联 Cloudflare 服务商',
+        'hostname_cloudflare_dns_provider_missing' => 'Hostname 未关联 Cloudflare DNS 服务商',
+        'hostname_cloudflare_sync_zone_missing'    => '未选择 Cloudflare DNS 同步域名',
+        'hostname_business_target_missing'         => '缺少业务主 CNAME 的目标域名',
         'hostname_dnspod_provider_missing'         => 'Hostname 未关联 DNSPod 服务商',
         'hostname_dnspod_zone_not_found'           => 'DNSPod 中找不到与该主机名匹配的域名',
         'hostname_fqdn_empty'                      => '主机名 FQDN 为空',
         'hostname_fqdn_missing'                    => '主机名 FQDN 缺失',
         'hostname_no_sync_records'                 => '该主机名当前没有可同步的 DNS 记录',
+        'cloudflare_dns_record_conflict'          => 'Cloudflare DNS 中已存在冲突记录',
 
         // Preferred Domain
         'preferred_domain_duplicate'     => '该优选域名已存在',

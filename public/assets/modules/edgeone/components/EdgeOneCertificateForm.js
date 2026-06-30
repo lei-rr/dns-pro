@@ -12,7 +12,7 @@ export default {
       return this.form.https_mode === 'sslcert'
     },
     certificate() {
-      return this.modelValue?.certificate?.list?.[0] || null
+      return (this.modelValue?.certificate?.items || this.modelValue?.certificate?.list || [])[0] || null
     },
     modeText() {
       return ({ disable: '未配置', eofreecert: 'EdgeOne 免费证书', sslcert: 'SSL 证书 ID' })[this.form.https_mode] || this.form.https_mode

@@ -1,5 +1,6 @@
 import RecordsView from './views/RecordsView.js'
 import ZonesView from './views/ZonesView.js'
+import { providerBrand } from '../../../providers/branding.js'
 import { providerPath } from '../../../routes/paths.js'
 
 /**
@@ -16,8 +17,6 @@ import { providerPath } from '../../../routes/paths.js'
  *     name: 'dnspod',
  *     providerType: 'dnspod',
  *     hook,
- *     color: 'blue',
- *     avatarColor: '#1677ff',
  *     description: (provider) => `管理 ${provider.name} 域名解析`,
  *   })
  */
@@ -45,13 +44,14 @@ export function createDnsModule({ name, providerType, hook, color, avatarColor, 
     },
     cards(provider) {
       const text = typeof description === 'function' ? description(provider) : (description || `管理 ${provider.name}`)
+      const brand = providerBrand(providerType)
       return [{
         ...provider,
         path: providerPath(provider.id),
         description: text,
         tag: provider.name,
-        color: color || 'geekblue',
-        avatarColor: avatarColor || '#2f54eb',
+        color: color || brand.color,
+        avatarColor: avatarColor || brand.avatarColor,
       }]
     },
   }

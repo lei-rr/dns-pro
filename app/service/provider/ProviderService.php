@@ -127,6 +127,7 @@ class ProviderService
      * 检查 provider 是否被其他 provider 引用：
      *   - EdgeOne.dnspod_provider 引用了 DNSPod
      *   - Hostname.cloudflare_provider 引用了 Cloudflare
+     *   - Hostname.cloudflare_dns_provider 引用了 Cloudflare
      *   - Hostname.dnspod_provider 引用了 DNSPod
      *   - Cloudflared.cloudflare_provider 引用了 Cloudflare
      */
@@ -137,6 +138,7 @@ class ProviderService
             $referencedBy = match (true) {
                 $type === 'edgeone' && ($provider['dnspod_provider'] ?? '') === $id => 'EdgeOne',
                 $type === 'hostname' && ($provider['cloudflare_provider'] ?? '') === $id => 'Hostname',
+                $type === 'hostname' && ($provider['cloudflare_dns_provider'] ?? '') === $id => 'Hostname',
                 $type === 'hostname' && ($provider['dnspod_provider'] ?? '') === $id => 'Hostname',
                 $type === 'cloudflared' && ($provider['cloudflare_provider'] ?? '') === $id => 'Cloudflare Tunnel',
                 default => null,

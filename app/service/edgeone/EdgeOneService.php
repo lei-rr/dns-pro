@@ -24,7 +24,7 @@ use TencentCloud\Teo\V20220901\Models\Zone;
 /**
  * EdgeOne 服务
  *
- * 领域服务：封装 EdgeOne zone / acceleration domain / status / certificate / CNAME 状态查询等领域能力。
+ * 领域服务：封装 EdgeOne zone / acceleration domain / status / certificate / CNAME 获取等领域能力。
  * DNSPod 同步与清理编排由 EdgeOneWorkflowService 负责。
  *
  * 模块边界：通过关联的 DNSPod provider 鉴权（共用密钥）；DNSPod 写入委托给 EdgeOneSyncService。
@@ -55,40 +55,31 @@ class EdgeOneService
 
         $cacheKey = $this->buildCacheKey('edgeone:zones', [
             'provider_id' => $providerId,
-            'filters' => $filters,
         ]);
 
         $cached = $this->getCached($cacheKey, $refresh);
-        if ($cached !== null) {
-            return $cached;
+        if ($cached === null) {
+            $cached = $this->fetchManageableZones($providerId);
+
+            $this->setCached($cacheKey, $cached, [
+                $this->providerCacheTag($providerId),
+                $this->zoneCacheTag($providerId),
+            ]);
         }
 
-        $provider = $this->credentialProvider($providerId);
-        $request = new DescribeZonesRequest();
-        $request->Offset = $filters['offset'];
-        $request->Limit = $filters['limit'];
-
-        try {
-            $response = $this->clients->make($provider)->DescribeZones($request);
-        } catch (TencentCloudSDKException $exception) {
-            throw $this->wrapSdkException('EdgeOne zone list failed', 'edgeone_zone_list_failed', $providerId, $exception);
-        }
+        $items = $cached['items'] ?? [];
+        $total = count($items);
 
         $result = [
-            'items' => array_map(fn (Zone $zone) => $this->mapper->presentZone($zone), $response->Zones ?? []),
+            'items' => array_slice($items, $filters['offset'], $filters['limit']),
             'pagination' => [
                 'offset' => $filters['offset'],
                 'limit' => $filters['limit'],
-                'total' => $response->TotalCount,
+                'total' => $total,
             ],
-            'request_id' => $response->RequestId,
+            'request_id' => $cached['request_id'] ?? null,
         ];
         $result['meta'] = $this->offsetPaginationMeta($result['pagination'], 20);
-
-        $this->setCached($cacheKey, $result, [
-            $this->providerCacheTag($providerId),
-            $this->zoneCacheTag($providerId),
-        ]);
 
         return $result;
     }
@@ -333,6 +324,51 @@ class EdgeOneService
         } while ($count === 100);
 
         return null;
+    }
+
+    private function fetchManageableZones(string $providerId): array
+    {
+        $provider = $this->credentialProvider($providerId);
+        $offset = 0;
+        $limit = 100;
+        $items = [];
+        $requestId = null;
+
+        do {
+            $request = new DescribeZonesRequest();
+            $request->Offset = $offset;
+            $request->Limit = $limit;
+
+            try {
+                $response = $this->clients->make($provider)->DescribeZones($request);
+            } catch (TencentCloudSDKException $exception) {
+                throw $this->wrapSdkException('EdgeOne zone list failed', 'edgeone_zone_list_failed', $providerId, $exception);
+            }
+
+            $requestId = $response->RequestId;
+            $pageItems = array_map(fn (Zone $zone) => $this->mapper->presentZone($zone), $response->Zones ?? []);
+
+            foreach ($pageItems as $zone) {
+                if ($this->isManageableZone($zone)) {
+                    $items[] = $zone;
+                }
+            }
+
+            $count = count($pageItems);
+            $offset += $count;
+            $total = (int) ($response->TotalCount ?? 0);
+        } while ($count === $limit && $offset < $total);
+
+        return [
+            'items' => $items,
+            'request_id' => $requestId,
+        ];
+    }
+
+    private function isManageableZone(array $zone): bool
+    {
+        // Pages/AI 站点不属于当前“加速域名管理”模块的可操作范围，避免把内建站点暴露到列表里。
+        return !in_array(strtolower((string) ($zone['type'] ?? '')), ['pages', 'ai'], true);
     }
 
     private function findAccelerationDomain(string $providerId, string $zoneId, string $domainName): array

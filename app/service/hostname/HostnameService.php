@@ -14,12 +14,12 @@ use app\service\cloudflare\CloudflareZoneGateway;
  *
  * 职责:
  *   - 把对外标识 (provider_id + zone_name + hostname_fqdn) 解析为 Cloudflare 内部 id (cf_provider_id + zone_id + hostname_uuid)
- *   - 把本地 preference(preferred_domain 等)合并进 Cloudflare 返回的 hostname 中
+ *   - 把本地 preference(preferred_domain / sync_target / sync_zone 等)合并进 Cloudflare 返回的 hostname 中
  *
  * 设计:对外 API 一律用域名形式标识资源(与 dnspod/cloudflare 的 zone 路由保持一致),
  * 后端通过 list 缓存反查 UUID,不增加远程 API 调用次数。
  *
- * 注:Cloudflare custom_metadata 仅企业版可用,本服务把 preferred_domain 存到本地
+ * 注:Cloudflare custom_metadata 仅企业版可用,本服务把 preferred_domain / sync_target / sync_zone 存到本地
  * hostname_preferences 表,对前端透明地"挂"在响应的 custom_metadata.preferred_domain 字段上。
  */
 class HostnameService
@@ -126,6 +126,17 @@ class HostnameService
             $this->preferences->setPreferredDomain($cfId, $hostnameId, $preferred);
         }
 
+        if ($hostnameId !== '' && (array_key_exists('sync_target', $data) || array_key_exists('sync_zone', $data))) {
+            $this->preferences->setSyncConfig(
+                $cfId,
+                $hostnameId,
+                (string) ($data['sync_target'] ?? ''),
+                (string) ($data['sync_provider_id'] ?? ''),
+                (string) ($data['sync_zone'] ?? ''),
+                (bool) ($data['auto_preferred'] ?? false),
+            );
+        }
+
         return $this->withPreference($hostname, $cfId, $hostnameId);
     }
 
@@ -138,6 +149,17 @@ class HostnameService
 
         if ($preferred !== null) {
             $this->preferences->setPreferredDomain($cfId, $hostnameId, $preferred);
+        }
+
+        if (array_key_exists('sync_target', $data) || array_key_exists('sync_zone', $data)) {
+            $this->preferences->setSyncConfig(
+                $cfId,
+                $hostnameId,
+                (string) ($data['sync_target'] ?? ''),
+                (string) ($data['sync_provider_id'] ?? ''),
+                (string) ($data['sync_zone'] ?? ''),
+                (bool) ($data['auto_preferred'] ?? false),
+            );
         }
 
         return $this->withPreference($hostname, $cfId, $hostnameId);
@@ -208,7 +230,7 @@ class HostnameService
     }
 
     /**
-     * 取出 $data['preferred_domain'] 并校验(白名单),同时从 $data 中删除该 key 防止误传给 Cloudflare
+     * 取出本地字段并校验，同时从 $data 中删除这些 key 防止误传给 Cloudflare
      *
      * @return string|null null=入参未传该字段;''=显式清空;非空=校验通过的域名
      */
@@ -232,13 +254,53 @@ class HostnameService
         return $preferred;
     }
 
+    public function syncConfig(string $providerId, string $hostnameFqdn, string $zoneName = ''): array
+    {
+        [$cfId, , $hostnameId] = $zoneName !== ''
+            ? $this->resolveHostname($providerId, $zoneName, $hostnameFqdn)
+            : $this->resolveHostnameByFqdn($providerId, $hostnameFqdn);
+
+        $preference = $this->preferences->get($cfId, $hostnameId) ?? [];
+
+        return [
+            'sync_target' => (string) ($preference['sync_target'] ?? ''),
+            'sync_provider_id' => (string) ($preference['sync_provider_id'] ?? ''),
+            'sync_zone' => (string) ($preference['sync_zone'] ?? ''),
+            'auto_preferred' => (bool) ($preference['auto_preferred'] ?? false),
+        ];
+    }
+
+    public function defaultSyncTarget(string $providerId): string
+    {
+        $provider = $this->providers->requireType(
+            $providerId,
+            'hostname',
+            'Hostname provider not found',
+            'hostname_provider_not_found',
+        );
+
+        if (trim((string) ($provider['dnspod_provider'] ?? '')) !== '') {
+            return 'dnspod';
+        }
+
+        if (trim((string) ($provider['cloudflare_dns_provider'] ?? '')) !== '' || trim((string) ($provider['cloudflare_provider'] ?? '')) !== '') {
+            return 'cloudflare_dns';
+        }
+
+        return '';
+    }
+
     /**
-     * 把本地 preference 合并到 hostname 响应的 custom_metadata 中(前端读 path 不变)
+     * 把本地 preference 合并到 hostname 响应中
      */
     private function mergePreference(array $hostname, ?array $preference): array
     {
         $metadata = is_array($hostname['custom_metadata'] ?? null) ? $hostname['custom_metadata'] : [];
         $preferred = trim((string) ($preference['preferred_domain'] ?? ''));
+        $syncTarget = trim((string) ($preference['sync_target'] ?? ''));
+        $syncProviderId = trim((string) ($preference['sync_provider_id'] ?? ''));
+        $syncZone = trim((string) ($preference['sync_zone'] ?? ''));
+        $autoPreferred = (bool) ($preference['auto_preferred'] ?? false);
 
         if ($preferred !== '') {
             $metadata['preferred_domain'] = $preferred;
@@ -247,6 +309,10 @@ class HostnameService
         }
 
         $hostname['custom_metadata'] = $metadata === [] ? null : $metadata;
+        $hostname['sync_target'] = $syncTarget;
+        $hostname['sync_provider_id'] = $syncProviderId;
+        $hostname['sync_zone'] = $syncZone;
+        $hostname['auto_preferred'] = $autoPreferred;
 
         return $hostname;
     }
@@ -271,6 +337,39 @@ class HostnameService
         }
 
         return $this->withPreference($hostname, $cfId, $hostnameId);
+    }
+
+    private function resolveHostnameByFqdn(string $providerId, string $hostnameFqdn): array
+    {
+        $provider = $this->providers->requireType(
+            $providerId,
+            'hostname',
+            'Hostname provider not found',
+            'hostname_provider_not_found',
+        );
+        $cfId = $this->cloudflareProviderId($providerId);
+        $fqdn = strtolower(trim($hostnameFqdn));
+
+        foreach ($this->zones($providerId, 1, 1000, '', false)['items'] ?? [] as $zone) {
+            $zoneName = trim((string) ($zone['name'] ?? ''));
+            if ($zoneName === '') {
+                continue;
+            }
+
+            try {
+                [$resolvedCfId, $zoneId, $hostnameId] = $this->resolveHostname($providerId, $zoneName, $fqdn);
+                if ($resolvedCfId === $cfId) {
+                    return [$resolvedCfId, $zoneId, $hostnameId];
+                }
+            } catch (ApiException) {
+                continue;
+            }
+        }
+
+        throw new ApiException('Hostname not found', 404, 'hostname_not_found', [
+            'hostname' => $hostnameFqdn,
+            'provider_id' => $provider['id'] ?? $providerId,
+        ]);
     }
 
     /**

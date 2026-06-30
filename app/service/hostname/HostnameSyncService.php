@@ -16,7 +16,7 @@ use app\service\dnspod\DnsPodSyncSupport;
  *   1. 回源 CNAME (默认线路):   <hostname>                  → custom_origin_server / zone fallback origin
  *   2. 所有权 TXT (默认线路):   ownership_verification.name → .value
  *   3. DCV 委派 CNAME (默认):  _acme-challenge.<hostname>  → <hostname>.<uuid>.dcv.cloudflare.com
- *   4. 优选 CNAME (境内线路):   <hostname>                  → custom_metadata.preferred_domain
+ *   4. 优选 CNAME (境内线路):   <hostname>                  → custom_metadata.preferred_domain（仅 auto_preferred 开启时）
  *
  * 通用的 zone 匹配 / 冲突清理 / provider 查找逻辑委托给 DnsPodSyncSupport（dnspod 模块），
  * 本类保留 hostname 业务特有的多记录拼装、active 状态判断、ownership 清理等逻辑。
@@ -56,11 +56,13 @@ class HostnameSyncService
      */
     public function sync(string $providerId, string $cfZoneName, string $hostnameFqdn): array
     {
-        $dnspodProviderId = $this->support->requireDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
         $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameFqdn);
         $fqdn = $this->requireFqdn($hostname);
-        $dnspodZone = $this->support->resolveDnspodZone($dnspodProviderId, $fqdn, self::PROVIDER_TYPE);
-        $records = $this->collectRecords($hostname, $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname));
+        $dnspodProviderId = $this->resolveDnspodProviderId($providerId, $hostname);
+        $dnspodZone = $this->resolveTargetZone($providerId, $dnspodProviderId, $fqdn);
+        $effectiveOrigin = $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname);
+        $this->requireBusinessTarget($effectiveOrigin);
+        $records = $this->collectRecords($hostname, $effectiveOrigin, $dnspodProviderId);
 
         if ($records === []) {
             throw new ApiException(
@@ -98,15 +100,18 @@ class HostnameSyncService
             return ['cleaned' => 0, 'records' => []];
         }
 
-        $dnspodProviderId = $this->support->lookupDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
+        $dnspodProviderId = trim((string) ($records[0]['provider_id'] ?? ''));
         if ($dnspodProviderId === '') {
             return ['cleaned' => 0, 'records' => []];
         }
 
-        try {
-            $dnspodZone = $this->support->resolveDnspodZone($dnspodProviderId, $hostnameFqdn, self::PROVIDER_TYPE);
-        } catch (ApiException) {
-            return ['cleaned' => 0, 'records' => [], 'reason' => 'dnspod_zone_not_found'];
+        $dnspodZone = trim((string) ($records[0]['dnspod_zone'] ?? ''));
+        if ($dnspodZone === '') {
+            try {
+                $dnspodZone = $this->resolveTargetZone($providerId, $dnspodProviderId, $hostnameFqdn);
+            } catch (ApiException) {
+                return ['cleaned' => 0, 'records' => [], 'reason' => 'dnspod_zone_not_found'];
+            }
         }
 
         $results = array_map(
@@ -129,10 +134,21 @@ class HostnameSyncService
     public function collectRecordsFor(string $providerId, string $cfZoneName, string $hostnameId): array
     {
         $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameId);
+        $dnspodProviderId = $this->resolveDnspodProviderId($providerId, $hostname);
+
+        $fqdn = (string) ($hostname['hostname'] ?? '');
+        $dnspodZone = '';
+        if ($fqdn !== '' && $dnspodProviderId !== '') {
+            try {
+                $dnspodZone = $this->resolveTargetZone($providerId, $dnspodProviderId, $fqdn);
+            } catch (ApiException) {
+                $dnspodZone = '';
+            }
+        }
 
         return [
-            'hostname_fqdn' => (string) ($hostname['hostname'] ?? ''),
-            'records' => $this->collectRecords($hostname, $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname), true),
+            'hostname_fqdn' => $fqdn,
+            'records' => $this->collectRecords($hostname, $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname), $dnspodProviderId, true, $dnspodZone),
         ];
     }
 
@@ -158,13 +174,13 @@ class HostnameSyncService
             return ['cleaned' => 0, 'reason' => 'fqdn_missing'];
         }
 
-        $dnspodProviderId = $this->support->lookupDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
+        $dnspodProviderId = $this->resolveDnspodProviderId($providerId, $hostname);
         if ($dnspodProviderId === '') {
             return ['cleaned' => 0, 'reason' => 'dnspod_provider_missing'];
         }
 
         try {
-            $dnspodZone = $this->support->resolveDnspodZone($dnspodProviderId, $fqdn, self::PROVIDER_TYPE);
+            $dnspodZone = $this->resolveTargetZone($providerId, $dnspodProviderId, $fqdn);
         } catch (ApiException) {
             return ['cleaned' => 0, 'reason' => 'dnspod_zone_not_found'];
         }
@@ -183,15 +199,18 @@ class HostnameSyncService
     /**
      * 创建前预检：autoSync 开启时确保 hostname FQDN 能匹配到 DNSPod zone
      */
-    public function preflight(string $providerId, string $hostnameFqdn): array
+    public function preflight(string $providerId, string $hostnameFqdn, array $data = []): array
     {
-        $dnspodProviderId = $this->support->requireDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
+        $dnspodProviderId = trim((string) ($data['sync_provider_id'] ?? ''));
+        if ($dnspodProviderId === '') {
+            $dnspodProviderId = $this->support->requireDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
+        }
         $fqdn = trim($hostnameFqdn);
         if ($fqdn === '') {
             throw new ApiException('Hostname FQDN missing', 422, 'hostname_fqdn_missing');
         }
 
-        $dnspodZone = $this->support->resolveDnspodZone($dnspodProviderId, $fqdn, self::PROVIDER_TYPE);
+        $dnspodZone = $this->resolveTargetZone($providerId, $dnspodProviderId, $fqdn, (string) ($data['sync_zone'] ?? ''));
 
         return [
             'dnspod_provider_id' => $dnspodProviderId,
@@ -210,18 +229,20 @@ class HostnameSyncService
         $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameFqdn, true);
         $fqdn = $this->requireFqdn($hostname);
 
-        $dnspodProviderId = $this->support->lookupDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
+        $dnspodProviderId = $this->resolveDnspodProviderId($providerId, $hostname);
         if ($dnspodProviderId === '') {
             return ['cleaned' => 0, 'records' => [], 'deleted' => [], 'reason' => 'dnspod_provider_missing'];
         }
 
         try {
-            $dnspodZone = $this->support->resolveDnspodZone($dnspodProviderId, $fqdn, self::PROVIDER_TYPE);
+            $dnspodZone = $this->resolveTargetZone($providerId, $dnspodProviderId, $fqdn);
         } catch (ApiException) {
             return ['cleaned' => 0, 'records' => [], 'deleted' => [], 'reason' => 'dnspod_zone_not_found'];
         }
 
-        $afterRecords = $this->collectRecords($hostname, $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname));
+        $effectiveOrigin = $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname);
+        $this->requireBusinessTarget($effectiveOrigin);
+        $afterRecords = $this->collectRecords($hostname, $effectiveOrigin, $dnspodProviderId);
         $deleted = $this->deleteMissingRecords($dnspodProviderId, $dnspodZone, $beforeRecords, $afterRecords);
         $precleaned = $afterRecords === []
             ? []
@@ -266,6 +287,33 @@ class HostnameSyncService
         return (string) ($this->hostnames->fallbackOrigin($providerId, $cfZoneName) ?? '');
     }
 
+    private function requireBusinessTarget(string $effectiveOrigin): void
+    {
+        if (trim($effectiveOrigin) === '') {
+            throw new ApiException(
+                'No business CNAME target available',
+                422,
+                'hostname_business_target_missing',
+            );
+        }
+    }
+
+    private function resolveTargetZone(string $providerId, string $dnspodProviderId, string $fqdn, string $explicitSyncZone = ''): string
+    {
+        if ($explicitSyncZone !== '') {
+            return $this->support->requireExplicitDnspodZone($dnspodProviderId, $explicitSyncZone, self::PROVIDER_TYPE);
+        }
+
+        $sync = $this->hostnames->syncConfig($providerId, $fqdn, '');
+        $syncZone = trim((string) ($sync['sync_zone'] ?? ''));
+
+        if ($syncZone !== '') {
+            return $this->support->requireExplicitDnspodZone($dnspodProviderId, $syncZone, self::PROVIDER_TYPE);
+        }
+
+        return $this->support->resolveDnspodZone($dnspodProviderId, $fqdn, self::PROVIDER_TYPE);
+    }
+
     /**
      * 收集当前应在 DNSPod 维持的 DNS 记录
      *
@@ -280,21 +328,22 @@ class HostnameSyncService
      *
      * @param bool $includeAll true 时强制包含所有权 TXT(不论状态),用于 hostname 删除前的全量收集
      */
-    private function collectRecords(array $hostname, string $effectiveOrigin, bool $includeAll = false): array
+    private function collectRecords(array $hostname, string $effectiveOrigin, string $dnspodProviderId, bool $includeAll = false, string $dnspodZone = ''): array
     {
         $records = [];
         $fqdn = (string) ($hostname['hostname'] ?? '');
         $shouldOutputOwnership = $includeAll || !$this->isHostnameActive($hostname);
+        $autoPreferred = (bool) ($hostname['auto_preferred'] ?? false);
 
         // 1. 回源 CNAME(默认线路)
         if ($fqdn !== '' && $effectiveOrigin !== '') {
-            $records[] = $this->record('CNAME', $fqdn, $effectiveOrigin, 'origin_cname', $fqdn, self::DEFAULT_LINE);
+            $records[] = $this->record('CNAME', $fqdn, $effectiveOrigin, 'origin_cname', $fqdn, $dnspodProviderId, self::DEFAULT_LINE, $dnspodZone);
         }
 
         // 2. 优选 CNAME(境内线路)
         $preferred = trim((string) ($hostname['custom_metadata']['preferred_domain'] ?? ''));
-        if ($fqdn !== '' && $preferred !== '') {
-            $records[] = $this->record('CNAME', $fqdn, $preferred, 'preferred_cname', $fqdn, self::PREFERRED_LINE);
+        if ($autoPreferred && $fqdn !== '' && $preferred !== '') {
+            $records[] = $this->record('CNAME', $fqdn, $preferred, 'preferred_cname', $fqdn, $dnspodProviderId, self::PREFERRED_LINE, $dnspodZone);
         }
 
         // 3. DCV 委派 CNAME
@@ -309,7 +358,7 @@ class HostnameSyncService
             $cname = (string) ($rec['cname'] ?? '');
             $target = (string) ($rec['cname_target'] ?? '');
             if ($cname !== '' && $target !== '') {
-                $records[] = $this->record('CNAME', $cname, $target, 'dcv_delegation', $fqdn, self::DEFAULT_LINE);
+                $records[] = $this->record('CNAME', $cname, $target, 'dcv_delegation', $fqdn, $dnspodProviderId, self::DEFAULT_LINE, $dnspodZone);
                 $dcvAdded = true;
             }
         }
@@ -322,7 +371,9 @@ class HostnameSyncService
                     $fqdn . '.' . $uuid . '.dcv.cloudflare.com',
                     'dcv_delegation',
                     $fqdn,
+                    $dnspodProviderId,
                     self::DEFAULT_LINE,
+                    $dnspodZone,
                 );
             }
         }
@@ -332,7 +383,7 @@ class HostnameSyncService
         if ($shouldOutputOwnership) {
             $ownership = $hostname['ownership_verification'] ?? null;
             if (is_array($ownership) && ($ownership['name'] ?? '') !== '' && ($ownership['value'] ?? '') !== '') {
-                $records[] = $this->record('TXT', (string) $ownership['name'], (string) $ownership['value'], 'ownership_verification', $fqdn, self::DEFAULT_LINE);
+                $records[] = $this->record('TXT', (string) $ownership['name'], (string) $ownership['value'], 'ownership_verification', $fqdn, $dnspodProviderId, self::DEFAULT_LINE, $dnspodZone);
             }
         }
 
@@ -348,7 +399,7 @@ class HostnameSyncService
         return in_array($status, ['active', 'active_renewing', 'moved'], true);
     }
 
-    private function record(string $type, string $name, string $value, string $purpose, string $fqdn, string $line = self::DEFAULT_LINE): array
+    private function record(string $type, string $name, string $value, string $purpose, string $fqdn, string $dnspodProviderId, string $line = self::DEFAULT_LINE, string $dnspodZone = ''): array
     {
         $label = self::PURPOSE_LABELS[$purpose] ?? '自定义主机名';
         return [
@@ -357,8 +408,20 @@ class HostnameSyncService
             'value' => $value,
             'line' => $line,
             'purpose' => $purpose,
+            'provider_id' => $dnspodProviderId,
+            'dnspod_zone' => $dnspodZone,
             'remark' => trim(sprintf('%s丨%s', $label, $fqdn)),
         ];
+    }
+
+    private function resolveDnspodProviderId(string $providerId, array $hostname): string
+    {
+        $syncProviderId = trim((string) ($hostname['sync_provider_id'] ?? ''));
+        if ($syncProviderId !== '') {
+            return $syncProviderId;
+        }
+
+        return $this->support->lookupDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
     }
 
     private function withPurpose(array $record, array $result): array

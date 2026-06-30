@@ -4,6 +4,7 @@ import hostnameModule from '../modules/hostname/index.js'
 import edgeOneModule from '../modules/edgeone/index.js'
 import cloudflaredModule from '../modules/cloudflared/index.js'
 import { defaultProviderHook, mergeHook } from '../modules/common/dns/hook.js'
+import { providerAvatarColor } from './branding.js'
 
 /**
  * 前端 provider 模块注册中心
@@ -45,9 +46,9 @@ export function resolveProviderHook(type) {
 
 export function resolveProviderAvatarColor(provider) {
   const mod = providerModule(provider)
-  if (!mod?.cards) return '#2f54eb'
+  if (!mod?.cards) return providerAvatarColor(provider?.type)
   const cards = mod.cards(provider)
-  return cards[0]?.avatarColor || '#2f54eb'
+  return cards[0]?.avatarColor || providerAvatarColor(provider?.type)
 }
 
 export { defaultProviderHook }

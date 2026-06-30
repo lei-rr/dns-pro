@@ -1,4 +1,5 @@
 import { edgeOneApi } from '../utils/api.js'
+import { providerAvatarColor } from '../../../providers/branding.js'
 import { providerChildPath } from '../../../routes/paths.js'
 import { message } from '../../../shared/plugins/antDesignVue.js'
 import { errorMessage } from '../../../shared/utils/errors.js'
@@ -81,6 +82,9 @@ export default {
     zoneAvatar(zone) {
       return (String(zone || '').match(/[a-z0-9]/i)?.[0] || 'E').toUpperCase()
     },
+    zoneAvatarColor() {
+      return providerAvatarColor('edgeone')
+    },
     areaLabel(value) {
       return ({ global: '全球', mainland: '中国大陆', overseas: '海外' })[value] || value || '-'
     },
@@ -130,7 +134,7 @@ export default {
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'">
             <a-space>
-              <a-avatar size="small" style="background: #722ed1">{{ zoneAvatar(record.name) }}</a-avatar>
+              <a-avatar size="small" :style="{ background: zoneAvatarColor() }">{{ zoneAvatar(record.name) }}</a-avatar>
               <router-link :to="zoneRoute(record)">{{ record.name }}</router-link>
             </a-space>
           </template>

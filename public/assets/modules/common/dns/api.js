@@ -41,13 +41,14 @@ function zoneQuery(provider, options = {}) {
 function recordQuery(provider, options = {}) {
   const type = providerType(provider)
   const paging = normalizedPaging(options, 20)
+  const keyword = String(options.keyword ?? options.search ?? '').trim()
 
   if (type === 'cloudflare') {
     return {
       page: paging.page,
       per_page: paging.per_page,
       type: options.type,
-      search: options.search,
+      search: keyword || undefined,
     }
   }
 
@@ -56,7 +57,7 @@ function recordQuery(provider, options = {}) {
     limit: paging.per_page,
     subdomain: options.subdomain,
     record_type: options.record_type,
-    keyword: options.keyword,
+    keyword,
   }
 }
 

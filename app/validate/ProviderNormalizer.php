@@ -28,6 +28,7 @@ class ProviderNormalizer
         'account_id' => 128,
         'dnspod_provider' => 64,
         'cloudflare_provider' => 64,
+        'cloudflare_dns_provider' => 64,
     ];
 
     /**
@@ -118,7 +119,7 @@ class ProviderNormalizer
             ]);
         }
 
-        if (in_array($field, ['dnspod_provider', 'cloudflare_provider'], true) && !preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/i', $value)) {
+        if (in_array($field, ['dnspod_provider', 'cloudflare_provider', 'cloudflare_dns_provider'], true) && !preg_match('/^[a-z0-9][a-z0-9_-]{0,63}$/i', $value)) {
             throw new ApiException('Invalid referenced provider id', 422, 'validation_failed', [
                 'errors' => [$field => 'Invalid provider id'],
             ]);

@@ -18,6 +18,7 @@ class HostnameWorkflowService
     public function __construct(
         private readonly HostnameService $hostnames,
         private readonly HostnameSyncService $sync,
+        private readonly HostnameCloudflareDnsSyncService $cloudflareSync,
     ) {
     }
 
@@ -60,14 +61,15 @@ class HostnameWorkflowService
     public function createHostname(string $providerId, string $zoneName, array $data, bool $autoSync = false): array
     {
         if ($autoSync) {
-            $this->sync->preflight($providerId, (string) ($data['hostname'] ?? ''));
+            $this->syncDriverForInput($providerId, $data)->preflight($providerId, (string) ($data['hostname'] ?? ''), $data);
         }
 
         $result = $this->hostnames->createHostname($providerId, $zoneName, $data);
 
         if ($autoSync && !empty($result['hostname'])) {
+            $driver = $this->syncDriverForResult($providerId, $zoneName, (string) $result['hostname']);
             $sync = $this->safeSync(
-                fn () => $this->sync->sync($providerId, $zoneName, (string) $result['hostname']),
+                fn () => $driver->sync($providerId, $zoneName, (string) $result['hostname']),
             );
             $result += SideEffectResult::dns([
                 'sync' => $this->normalizeSyncOperation($sync, '已执行 DNS 同步'),
@@ -81,14 +83,15 @@ class HostnameWorkflowService
     {
         $beforeRecords = [];
         if ($autoSync) {
-            $beforeRecords = $this->sync->collectRecordsFor($providerId, $zoneName, $hostnameFqdn)['records'] ?? [];
+            $beforeRecords = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn)->collectRecordsFor($providerId, $zoneName, $hostnameFqdn)['records'] ?? [];
         }
 
         $result = $this->hostnames->updateHostname($providerId, $zoneName, $hostnameFqdn, $data);
 
         if ($autoSync) {
+            $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
             $sync = $this->safeSync(
-                fn () => $this->sync->resyncAfterUpdate($providerId, $zoneName, $hostnameFqdn, $beforeRecords),
+                fn () => $driver->resyncAfterUpdate($providerId, $zoneName, $hostnameFqdn, $beforeRecords),
             );
             $result += SideEffectResult::dns([
                 'sync' => $this->normalizeSyncOperation($sync, '已执行 DNS 重同步'),
@@ -110,8 +113,9 @@ class HostnameWorkflowService
             && in_array($current, $activeStates, true);
 
         if ($transitioned) {
+            $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
             $cleanup = $this->safeSync(
-                fn () => $this->sync->cleanupStaleRecords($providerId, $zoneName, $hostnameFqdn),
+                fn () => $driver->cleanupStaleRecords($providerId, $zoneName, $hostnameFqdn),
             );
             $result += SideEffectResult::dns([
                 'cleanup' => $this->normalizeCleanupOperation($cleanup, '已执行 DNS 清理'),
@@ -125,12 +129,13 @@ class HostnameWorkflowService
 
     public function deleteHostname(string $providerId, string $zoneName, string $hostnameFqdn, bool $autoCleanup = true): array
     {
-        $collected = $autoCleanup ? $this->sync->collectRecordsFor($providerId, $zoneName, $hostnameFqdn) : null;
+        $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
+        $collected = $autoCleanup ? $driver->collectRecordsFor($providerId, $zoneName, $hostnameFqdn) : null;
         $result = $this->hostnames->deleteHostname($providerId, $zoneName, $hostnameFqdn);
 
         if ($collected && !empty($collected['records']) && $collected['hostname_fqdn'] !== '') {
             $cleanup = $this->safeSync(
-                fn () => $this->sync->cleanup($providerId, $collected['hostname_fqdn'], $collected['records']),
+                fn () => $driver->cleanup($providerId, $collected['hostname_fqdn'], $collected['records']),
             );
             $result += SideEffectResult::dns([
                 'cleanup' => $this->normalizeCleanupOperation($cleanup, '已执行 DNS 删除后清理'),
@@ -138,6 +143,32 @@ class HostnameWorkflowService
         }
 
         return $result;
+    }
+
+    private function syncDriverForInput(string $providerId, array $data): HostnameSyncService|HostnameCloudflareDnsSyncService
+    {
+        $target = trim((string) ($data['sync_target'] ?? ''));
+        if ($target === '') {
+            $target = $this->hostnames->defaultSyncTarget($providerId);
+        }
+
+        return $target === 'cloudflare_dns' ? $this->cloudflareSync : $this->sync;
+    }
+
+    private function syncDriverForHostname(string $providerId, string $zoneName, string $hostnameFqdn): HostnameSyncService|HostnameCloudflareDnsSyncService
+    {
+        $config = $this->hostnames->syncConfig($providerId, $hostnameFqdn, $zoneName);
+        $target = trim((string) ($config['sync_target'] ?? ''));
+        if ($target === '') {
+            $target = $this->hostnames->defaultSyncTarget($providerId);
+        }
+
+        return $target === 'cloudflare_dns' ? $this->cloudflareSync : $this->sync;
+    }
+
+    private function syncDriverForResult(string $providerId, string $zoneName, string $hostnameFqdn): HostnameSyncService|HostnameCloudflareDnsSyncService
+    {
+        return $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
     }
 
     /**

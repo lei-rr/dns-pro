@@ -109,6 +109,33 @@ class DnsPodSyncSupport
         return $best;
     }
 
+    public function requireExplicitDnspodZone(string $dnspodProviderId, string $zoneName, string $errorCodePrefix): string
+    {
+        $zoneName = strtolower(trim($zoneName));
+        if ($zoneName === '') {
+            throw new ApiException(
+                'DNSPod zone is required',
+                422,
+                sprintf('%s_dnspod_zone_not_found', $errorCodePrefix),
+            );
+        }
+
+        $zones = $this->zones->list($dnspodProviderId, 0, 3000);
+        foreach ($zones['items'] ?? [] as $zone) {
+            $name = strtolower((string) ($zone['name'] ?? ''));
+            if ($name === $zoneName) {
+                return $name;
+            }
+        }
+
+        throw new ApiException(
+            sprintf('DNSPod zone %s not found', $zoneName),
+            422,
+            sprintf('%s_dnspod_zone_not_found', $errorCodePrefix),
+            ['zone' => $zoneName],
+        );
+    }
+
     /**
      * 同步前清理冲突记录：删除同名的 A/AAAA/MX/NS 等（与 CNAME 在 DNS 规范上冲突）
      *

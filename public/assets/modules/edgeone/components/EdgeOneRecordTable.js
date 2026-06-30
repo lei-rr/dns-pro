@@ -107,14 +107,14 @@ export default {
     httpsLabel(record) {
       const mode = record.certificate?.mode || 'disable'
       if (mode === 'disable') return '未配置'
-      const cert = record.certificate?.list?.[0]
+      const cert = (record.certificate?.items || record.certificate?.list || [])[0]
       if (cert?.status && normalizeStatus(cert.status) !== 'deployed') return certificateStatusLabel(cert.status)
       return '已部署'
     },
     httpsColor(record) {
       const mode = record.certificate?.mode || 'disable'
       if (mode === 'disable') return 'default'
-      const cert = record.certificate?.list?.[0]
+      const cert = (record.certificate?.items || record.certificate?.list || [])[0]
       return certificateStatusColor(cert?.status || 'deployed')
     },
     actionItems(record) {

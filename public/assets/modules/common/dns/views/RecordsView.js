@@ -28,6 +28,7 @@ export default {
       editing: null,
       showForm: false,
       keyword: '',
+      appliedKeyword: '',
       loading: true,
       saving: false,
       deleting: false,
@@ -62,10 +63,7 @@ export default {
       })
     },
     filteredRecords() {
-      const keyword = this.keyword.trim().toLowerCase()
-      if (!keyword) return this.records
-      return this.records.filter((record) => [record.name, record.type, record.value, record.line, record.remark]
-        .some((value) => String(value || '').toLowerCase().includes(keyword)))
+      return this.records
     },
   },
   async mounted() { await this.load() },
@@ -73,6 +71,11 @@ export default {
     provider() { this.currentProviderMeta = this.providerMeta || null; this.resetAndLoad() },
     domain() { this.resetAndLoad() },
     providerMeta(value) { this.currentProviderMeta = value || null },
+    keyword(value) {
+      if (String(value || '').trim() === '' && this.appliedKeyword !== '') {
+        this.applyKeyword()
+      }
+    },
   },
   methods: {
     routeBase() { return providerPath(this.provider) },
@@ -82,7 +85,15 @@ export default {
       this.showForm = false
       this.recordMeta = { page: 1, per_page: 20, total: 0 }
       this.keyword = ''
+      this.appliedKeyword = ''
       this.currentDomainName = ''
+      this.load()
+    },
+    applyKeyword() {
+      const nextKeyword = this.keyword.trim()
+      if (nextKeyword === this.appliedKeyword && this.recordMeta.page === 1) return
+      this.appliedKeyword = nextKeyword
+      this.recordMeta = { ...this.recordMeta, page: 1, total: 0 }
       this.load()
     },
     handleTableChange(pagination) {
@@ -108,6 +119,7 @@ export default {
         const records = await dnsApi.records(this.provider, this.recordsTarget, {
           page: this.recordMeta.page,
           per_page: this.recordMeta.per_page,
+          keyword: this.appliedKeyword,
           ...options,
         })
         if (requestToken !== this.loadRequestToken) return
@@ -310,7 +322,7 @@ export default {
           <a-typography-text type="secondary">解析记录</a-typography-text>
         </div>
         <div class="page-actions">
-          <a-input-search v-model:value="keyword" placeholder="搜索记录" allow-clear />
+          <a-input-search v-model:value="keyword" placeholder="搜索记录" allow-clear @search="applyKeyword" />
           <a-button v-if="capabilities.importRecords" :disabled="saving || deleting" @click="importRecords">导入</a-button>
           <a-button v-if="capabilities.exportRecords" :disabled="!records.length" @click="exportRecords">导出</a-button>
           <a-button :loading="loading" :disabled="saving || deleting" @click="handleRefresh">刷新</a-button>

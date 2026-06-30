@@ -164,6 +164,7 @@ runtime/             缓存 / session / 日志（已 ignore）
   - `modules/`：按 provider 组织业务页面与组件
   - `shared/`：跨模块复用组件、错误处理、批量操作、请求工具
   - `providers/` / `routes/`：provider 注册、状态管理与路由解析
+  - `providers/branding.js`：provider 品牌色统一来源；腾讯云系模块统一蓝色，Cloudflare 系模块统一橙色，避免在各视图散落硬编码颜色
 - **副作用契约**：DNS 自动同步 / 清理统一通过 `side_effects.dns` 返回，前端据此展示真实执行结果。
 
 更完整的开发与分层约定见：`ARCHITECTURE.md`
