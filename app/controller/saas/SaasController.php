@@ -105,24 +105,6 @@ class SaasController
         ));
     }
 
-    public function sync(string $providerId, string $zoneName, string $hostnameFqdn): Response
-    {
-        return ApiResponse::data($this->workflow->syncHostname(
-            $providerId,
-            $this->zoneName($zoneName),
-            $this->hostnameFqdn($hostnameFqdn),
-        ));
-    }
-
-    public function checkSync(string $providerId, string $zoneName, string $hostnameFqdn): Response
-    {
-        return ApiResponse::data($this->workflow->checkHostnameSync(
-            $providerId,
-            $this->zoneName($zoneName),
-            $this->hostnameFqdn($hostnameFqdn),
-        ));
-    }
-
     public function delete(string $providerId, string $zoneName, string $hostnameFqdn): Response
     {
         return ApiResponse::data($this->workflow->deleteHostname(

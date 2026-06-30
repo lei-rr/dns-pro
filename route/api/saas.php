@@ -30,10 +30,8 @@ Route::get('saas/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn',
 Route::put('saas/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn', [SaasController::class, 'update'])->pattern($hostnamePattern)->completeMatch();
 Route::delete('saas/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn', [SaasController::class, 'delete'])->pattern($hostnamePattern)->completeMatch();
 
-// saas 主机名状态刷新 / 同步
+// saas 主机名状态刷新
 Route::post('saas/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn/refresh', [SaasController::class, 'refresh'])->pattern($hostnamePattern)->completeMatch();
-Route::post('saas/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn/sync', [SaasController::class, 'sync'])->pattern($hostnamePattern)->completeMatch();
-Route::post('saas/providers/:providerId/zones/:zoneName/hostnames/:hostnameFqdn/sync-check', [SaasController::class, 'checkSync'])->pattern($hostnamePattern)->completeMatch();
 
 // Zone 级默认回源域名(fallback origin)
 Route::get('saas/providers/:providerId/zones/:zoneName/fallback-origin', [SaasController::class, 'fallbackOriginShow'])->pattern($zonePattern)->completeMatch();

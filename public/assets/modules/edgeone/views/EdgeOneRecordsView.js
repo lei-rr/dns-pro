@@ -200,16 +200,27 @@ export default {
         message.error('只能删除已停用的加速域名')
         return
       }
+      const total = this.selectedRecords.length
       const content = this.dnspodLinked
-        ? `确认删除已选的 ${this.selectedRecords.length} 个加速域名？关联的 DNSPod CNAME 记录会按可用情况清理。`
-        : `确认删除已选的 ${this.selectedRecords.length} 个加速域名？删除后将从 EdgeOne 移除。`
-      modal.confirm({
+        ? `确认删除已选的 ${total} 个加速域名？关联的 DNSPod CNAME 记录会按可用情况清理。`
+        : `确认删除已选的 ${total} 个加速域名？删除后将从 EdgeOne 移除。`
+      let dialog = null
+      dialog = modal.confirm({
         title: '批量删除加速域名',
-        content,
+        content: this.batchRemoveConfirmContent(content),
         okText: '批量删除',
         okType: 'danger',
         cancelText: '取消',
-        onOk: () => this.batchRemove(),
+        onOk: () => this.batchRemove(dialog, total, content),
+      })
+    },
+    batchRemoveConfirmContent(base) {
+      return Vue.h('div', { style: 'white-space: pre-wrap' }, this.deletingText ? `${base}\n\n${this.deletingText}` : base)
+    },
+    updateBatchRemoveDialog(dialog, base) {
+      dialog?.update?.({
+        content: this.batchRemoveConfirmContent(base),
+        cancelButtonProps: { disabled: this.deleting },
       })
     },
     async remove(record) {
@@ -218,6 +229,7 @@ export default {
         const response = await edgeOneApi.deleteAccelerationDomain(this.provider, this.decodedZoneId, record.name)
         const cleaned = Number(response?.data?.side_effects?.dns?.cleanup?.details?.cleaned || 0)
         message.success(cleaned > 0 ? '已删除，DNSPod CNAME 已清理' : '已删除')
+        this.clearSelection()
         await this.load({ refresh: true })
       } catch (error) {
         message.error(errorMessage(error))
@@ -238,13 +250,16 @@ export default {
         this.deleting = false
       }
     },
-    async batchRemove() {
+    async batchRemove(dialog, total, base) {
       this.deleting = true
       const failed = []
       try {
+        this.deletingText = '正在删除 0/' + total
+        this.updateBatchRemoveDialog(dialog, base)
         const records = [...this.selectedRecords]
         for (const [index, record] of records.entries()) {
           this.deletingText = `正在删除 ${index + 1}/${records.length}`
+          this.updateBatchRemoveDialog(dialog, base)
           try {
             await edgeOneApi.deleteAccelerationDomain(this.provider, this.decodedZoneId, record.name)
           } catch (error) {
@@ -253,7 +268,7 @@ export default {
         }
         if (failed.length) showBatchFailures('批量删除完成', failed, '个')
         else message.success('批量删除完成')
-        this.selectedRecords = []
+        this.clearSelection()
         await this.load({ refresh: true })
       } catch (error) {
         message.error(errorMessage(error))
@@ -280,7 +295,6 @@ export default {
         <template #extra><a-button type="primary" @click="$router.push(zonesPath)">返回 EdgeOne</a-button></template>
       </a-result>
       <template v-else>
-      <a-alert v-if="deletingText" type="warning" show-icon style="margin-bottom: 16px" :message="deletingText" />
       <BatchToolbar :count="selectedRecords.length" :deleting="deleting" delete-text="批量删除" @delete="askBatchRemove" @clear="clearSelection" />
       <EdgeOneRecordTable
         :records="records"

@@ -128,45 +128,6 @@ class SaasWorkflowService
         return $result;
     }
 
-    public function syncHostname(string $providerId, string $zoneName, string $hostnameFqdn): array
-    {
-        $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
-        $sync = $this->safeSync(
-            fn () => $driver->sync($providerId, $zoneName, $hostnameFqdn),
-        );
-
-        return [
-            'hostname' => $hostnameFqdn,
-        ] + SideEffectResult::dns([
-            'sync' => $this->normalizeSyncOperation($sync, '已执行 DNS 重同步'),
-        ]);
-    }
-
-    public function checkHostnameSync(string $providerId, string $zoneName, string $hostnameFqdn): array
-    {
-        $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
-        $check = $this->safeSync(
-            fn () => $driver->check($providerId, $zoneName, $hostnameFqdn),
-        );
-
-        $checked = (bool) array_reduce(
-            $check['records'] ?? [],
-            static fn (bool $carry, array $record) => $carry && (bool) ($record['synced'] ?? false),
-            true,
-        );
-
-        return [
-            'hostname' => $hostnameFqdn,
-            'checked' => $checked,
-        ] + SideEffectResult::dns([
-            'sync' => SideEffectResult::operation(
-                $checked ? 'completed' : 'skipped',
-                $checked ? 'DNS 同步状态正常' : '存在未同步记录',
-                $check,
-            ),
-        ]);
-    }
-
     public function deleteHostname(string $providerId, string $zoneName, string $hostnameFqdn, bool $autoCleanup = true): array
     {
         $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);

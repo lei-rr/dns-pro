@@ -188,13 +188,25 @@ export default {
     },
     askBatchRemove() {
       if (!this.selectedRecords.length) return
-      modal.confirm({
+      const total = this.selectedRecords.length
+      let dialog = null
+      dialog = modal.confirm({
         title: '批量删除解析记录',
-        content: `确认删除已选的 ${this.selectedRecords.length} 条解析记录？删除后将立即同步到云服务商。`,
+        content: this.batchRemoveConfirmContent(total),
         okText: '批量删除',
         okType: 'danger',
         cancelText: '取消',
-        onOk: () => this.batchRemove(),
+        onOk: () => this.batchRemove(dialog, total),
+      })
+    },
+    batchRemoveConfirmContent(total) {
+      const base = `确认删除已选的 ${total} 条解析记录？删除后将立即同步到云服务商。`
+      return Vue.h('div', { style: 'white-space: pre-wrap' }, this.deletingText ? `${base}\n\n${this.deletingText}` : base)
+    },
+    updateBatchRemoveDialog(dialog, total) {
+      dialog?.update?.({
+        content: this.batchRemoveConfirmContent(total),
+        cancelButtonProps: { disabled: this.deleting },
       })
     },
     async remove(record) {
@@ -202,6 +214,7 @@ export default {
       try {
         await dnsApi.deleteRecord(this.provider, this.recordsTarget, record.id)
         message.success('已删除')
+        this.clearSelection()
         await this.load({ refresh: true })
       } catch (error) {
         message.error(errorMessage(error))
@@ -210,13 +223,16 @@ export default {
         this.deletingText = ''
       }
     },
-    async batchRemove() {
+    async batchRemove(dialog, total) {
       this.deleting = true
       const failed = []
       try {
+        this.deletingText = '正在删除 0/' + total
+        this.updateBatchRemoveDialog(dialog, total)
         const records = [...this.selectedRecords]
         for (const [index, record] of records.entries()) {
           this.deletingText = `正在删除 ${index + 1}/${records.length}`
+          this.updateBatchRemoveDialog(dialog, total)
           try {
             await dnsApi.deleteRecord(this.provider, this.recordsTarget, record.id)
           } catch (error) {
@@ -225,7 +241,7 @@ export default {
         }
         if (failed.length) showBatchFailures('批量删除完成', failed)
         else message.success('批量删除完成')
-        this.selectedRecords = []
+        this.clearSelection()
         await this.load({ refresh: true })
       } finally {
         this.deleting = false
@@ -318,7 +334,7 @@ export default {
           <a-button type="primary" :disabled="saving || deleting" @click="create">添加记录</a-button>
         </template>
       </ListToolbar>
-      <a-alert v-if="deletingText" type="warning" show-icon style="margin-bottom: 16px" :message="deletingText" />
+      <a-alert v-if="saving && deletingText" type="warning" show-icon style="margin-bottom: 16px" :message="deletingText" />
       <BatchToolbar :count="selectedRecords.length" :deleting="deleting" delete-text="批量删除" @delete="askBatchRemove" @clear="clearSelection" />
       <RecordTable
         :records="filteredRecords"

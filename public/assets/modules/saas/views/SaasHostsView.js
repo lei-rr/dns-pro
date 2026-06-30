@@ -6,9 +6,10 @@ import { loadProviders } from '../../../providers/store.js'
 import { providerPath } from '../../../routes/paths.js'
 import ListToolbar from '../../../shared/components/ListToolbar.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
-import { errorMessage } from '../../../shared/utils/errors.js'
-import { tablePagination } from '../../../shared/utils/pagination.js'
 import BatchToolbar from '../../../shared/components/BatchToolbar.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
+import { showBatchFailures } from '../../../shared/utils/batch.js'
+import { tablePagination } from '../../../shared/utils/pagination.js'
 import SaasCreateModal from '../components/SaasCreateModal.js'
 import SaasDetailModal from '../components/SaasDetailModal.js'
 import SaasFallbackOriginModal from '../components/SaasFallbackOriginModal.js'
@@ -28,10 +29,7 @@ export default {
       editingHostname: null,
       savingEdit: false,
       deleting: false,
-      syncing: false,
-      syncingText: '',
-      checking: false,
-      checkingText: '',
+      deletingText: '',
       detailLoading: false,
       detailRequestToken: 0,
       listLoadRequestToken: 0,
@@ -375,82 +373,6 @@ export default {
       const targetLabel = target === 'cloudflare_dns' ? 'Cloudflare DNS' : 'DNSPod'
       return [targetLabel, providerId, zone].filter(Boolean).join(' / ')
     },
-    async syncHostname(record) {
-      this.syncing = true
-      try {
-        const response = await saasApi.syncHostname(this.provider, this.decodedZoneName, record.hostname)
-        message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.sync, '已执行 DNS 重同步'))
-        await this.load({ refresh: true })
-      } catch (error) {
-        message.error(errorMessage(error))
-      } finally {
-        this.syncing = false
-        this.syncingText = ''
-      }
-    },
-    async batchSyncHostnames() {
-      if (!this.selectedHostnames.length) return
-      this.syncing = true
-      const failed = []
-      try {
-        const items = [...this.selectedHostnames]
-        for (const [index, record] of items.entries()) {
-          this.syncingText = `正在重同步 ${index + 1}/${items.length}`
-          try {
-            await saasApi.syncHostname(this.provider, this.decodedZoneName, record.hostname)
-          } catch (error) {
-            failed.push(`${record.hostname}: ${error.message}`)
-          }
-        }
-        if (failed.length) {
-          message.warning(`批量重同步完成，失败 ${failed.length} 条`)
-        } else {
-          message.success('批量重同步完成')
-        }
-        this.clearSelection()
-        await this.load({ refresh: true })
-      } finally {
-        this.syncing = false
-        this.syncingText = ''
-      }
-    },
-    async checkHostnameSync(record) {
-      this.checking = true
-      try {
-        const response = await saasApi.checkHostnameSync(this.provider, this.decodedZoneName, record.hostname)
-        message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.sync, '已检查同步状态'))
-      } catch (error) {
-        message.error(errorMessage(error))
-      } finally {
-        this.checking = false
-        this.checkingText = ''
-      }
-    },
-    async batchCheckHostnames() {
-      if (!this.selectedHostnames.length) return
-      this.checking = true
-      const failed = []
-      try {
-        const items = [...this.selectedHostnames]
-        for (const [index, record] of items.entries()) {
-          this.checkingText = `正在检查 ${index + 1}/${items.length}`
-          try {
-            await saasApi.checkHostnameSync(this.provider, this.decodedZoneName, record.hostname)
-          } catch (error) {
-            failed.push(`${record.hostname}: ${error.message}`)
-          }
-        }
-        if (failed.length) {
-          message.warning(`批量检查完成，失败 ${failed.length} 条`)
-        } else {
-          message.success('批量检查完成')
-        }
-      } finally {
-        this.checking = false
-        this.checkingText = ''
-      }
-    },
-
     // ----- 删除 -----
     askDelete(record) {
       modal.confirm({
@@ -460,20 +382,84 @@ export default {
         onOk: () => this.deleteHostname(record),
       })
     },
+    askBatchDelete() {
+      if (!this.selectedHostnames.length) return
+      const total = this.selectedHostnames.length
+      let dialog = null
+      dialog = modal.confirm({
+        title: '批量删除自定义主机名',
+        content: this.batchDeleteConfirmContent(total),
+        okText: '批量删除',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: () => this.batchDeleteHostnames(dialog, total),
+      })
+    },
+    batchDeleteConfirmContent(total) {
+      const base = `确认删除已选的 ${total} 个自定义主机名？关联的 DNS 记录会按可用情况清理。`
+      return Vue.h('div', { style: 'white-space: pre-wrap' }, this.deletingText ? `${base}\n\n${this.deletingText}` : base)
+    },
+    updateBatchDeleteDialog(dialog, total) {
+      dialog?.update?.({
+        content: this.batchDeleteConfirmContent(total),
+        cancelButtonProps: { disabled: this.deleting },
+      })
+    },
+    isCurrentHostname(record) {
+      if (!record || !this.selectedHostname) return false
+      const currentId = this.selectedHostname.id
+      const recordId = record.id
+      if (currentId && recordId) return currentId === recordId
+
+      const currentHostname = String(this.selectedHostname.hostname || '').trim().toLowerCase()
+      const recordHostname = String(record.hostname || '').trim().toLowerCase()
+      return currentHostname !== '' && currentHostname === recordHostname
+    },
     async deleteHostname(record) {
       this.deleting = true
       try {
         const response = await saasApi.deleteHostname(this.provider, this.decodedZoneName, record.hostname)
         message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.cleanup, '已删除'))
-        if (this.selectedHostname?.id === record.id) {
+        if (this.isCurrentHostname(record)) {
           this.selectedHostname = null
           this.showDetails = false
         }
+        this.clearSelection()
         await this.load({ refresh: true })
       } catch (error) {
         message.error(errorMessage(error))
       } finally {
         this.deleting = false
+      }
+    },
+    async batchDeleteHostnames(dialog, total) {
+      this.deleting = true
+      const failed = []
+      const deletingCurrent = this.selectedHostnames.some((record) => this.isCurrentHostname(record))
+      try {
+        this.deletingText = '正在删除 0/' + total
+        this.updateBatchDeleteDialog(dialog, total)
+        const records = [...this.selectedHostnames]
+        for (const [index, record] of records.entries()) {
+          this.deletingText = `正在删除 ${index + 1}/${records.length}`
+          this.updateBatchDeleteDialog(dialog, total)
+          try {
+            await saasApi.deleteHostname(this.provider, this.decodedZoneName, record.hostname)
+          } catch (error) {
+            failed.push(`${record.hostname}: ${error.message}`)
+          }
+        }
+        if (failed.length) showBatchFailures('批量删除完成', failed, '个')
+        else message.success('批量删除完成')
+        if (deletingCurrent) {
+          this.selectedHostname = null
+          this.showDetails = false
+        }
+        this.clearSelection()
+        await this.load({ refresh: true })
+      } finally {
+        this.deleting = false
+        this.deletingText = ''
       }
     },
 
@@ -518,9 +504,7 @@ export default {
           <a-button type="primary" :disabled="notFound" @click="openCreate">新增主机名</a-button>
         </template>
       </ListToolbar>
-      <a-alert v-if="syncingText || checkingText" type="warning" show-icon style="margin-bottom: 16px" :message="syncingText || checkingText" />
-      <BatchToolbar :count="selectedHostnames.length" :deleting="syncing" delete-text="批量重同步" :actions="[{ key: 'check', label: '批量检查', loading: checking }]" @delete="batchSyncHostnames" @action="key => { if (key === 'check') batchCheckHostnames() }" @clear="clearSelection" />
-
+      <BatchToolbar :count="selectedHostnames.length" :deleting="deleting" delete-text="批量删除" @delete="askBatchDelete" @clear="clearSelection" />
       <a-result v-if="notFound" status="404" title="站点不存在或不可访问" :sub-title="decodedZoneName">
         <template #extra><a-button type="primary" @click="$router.push(zonesPath)">返回站点</a-button></template>
       </a-result>
@@ -574,8 +558,6 @@ export default {
                 <template #overlay>
                     <a-menu>
                       <a-menu-item @click="openEdit(record)">编辑</a-menu-item>
-                      <a-menu-item @click="checkHostnameSync(record)">检查同步</a-menu-item>
-                      <a-menu-item @click="syncHostname(record)">重同步</a-menu-item>
                       <a-menu-item danger @click="askDelete(record)">删除</a-menu-item>
                     </a-menu>
                 </template>
