@@ -137,6 +137,11 @@ export default {
     openPreferredManager() { this.showPreferredManager = true },
     onPreferredUpdate(items) { this.preferredDomains = items || [] },
 
+    dnsOperationMessage(operation, fallback) {
+      if (!operation) return fallback
+      return operation.message || fallback
+    },
+
     openFallbackOrigin() { this.showFallbackOrigin = true },
     onFallbackUpdated() {
       // 默认回源变了,刷新 hostname 列表(那些没自定义源的 hostname 实际源服务器跟着变)
@@ -173,11 +178,10 @@ export default {
 
         const options = { autoSync: formData.autoSync && this.dnspodLinked }
         const response = await hostnameApi.createHostname(this.provider, this.decodedZoneName, payload, options)
-        message.success('自定义主机名已创建')
-        this.selectedHostname = response.data
+        message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.sync, '自定义主机名已创建'))
         this.showCreateForm = false
-        this.showDetails = true
         await this.load({ refresh: true })
+        await this.openDetails(response.data)
       } catch (error) {
         message.error(errorMessage(error))
       } finally {
@@ -212,14 +216,14 @@ export default {
           payload,
           options,
         )
-        message.success('自定义主机名已更新')
+        message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.sync, '自定义主机名已更新'))
         this.showCreateForm = false
         this.editingHostname = null
         this.mergeHostnameRecord(response.data)
-        if (this.showDetails && this.selectedHostname?.id === response.data?.id) {
-          this.selectedHostname = response.data
-        }
         await this.load({ refresh: true })
+        if (this.showDetails && this.selectedHostname?.id === response.data?.id) {
+          await this.openDetails(response.data)
+        }
       } catch (error) {
         message.error(errorMessage(error))
       } finally {
@@ -282,8 +286,8 @@ export default {
     async deleteHostname(record) {
       this.deleting = true
       try {
-        await hostnameApi.deleteHostname(this.provider, this.decodedZoneName, record.hostname)
-        message.success('已删除')
+        const response = await hostnameApi.deleteHostname(this.provider, this.decodedZoneName, record.hostname)
+        message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.cleanup, '已删除'))
         if (this.selectedHostname?.id === record.id) {
           this.selectedHostname = null
           this.showDetails = false

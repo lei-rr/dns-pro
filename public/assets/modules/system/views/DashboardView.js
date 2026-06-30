@@ -1,17 +1,7 @@
-import { loadProviders, useProviderStore } from '../../../providers/store.js'
+import { useProviderStore } from '../../../providers/store.js'
 import { providerCards } from '../../../routes/utils.js'
-import { message } from '../../../shared/plugins/antDesignVue.js'
-import { errorMessage } from '../../../shared/utils/errors.js'
 
 export default {
-  async mounted() {
-    this._onProvidersUpdated = () => this.loadProviders()
-    window.addEventListener('providers-updated', this._onProvidersUpdated)
-    await this.loadProviders()
-  },
-  beforeUnmount() {
-    window.removeEventListener('providers-updated', this._onProvidersUpdated)
-  },
   computed: {
     cards() {
       return this.providerStore.providers?.flatMap(providerCards) || []
@@ -21,15 +11,6 @@ export default {
     },
     providerStore() {
       return useProviderStore()
-    },
-  },
-  methods: {
-    async loadProviders() {
-      try {
-        await loadProviders()
-      } catch (error) {
-        message.error(errorMessage(error))
-      }
     },
   },
   template: `

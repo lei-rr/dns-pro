@@ -111,6 +111,10 @@ export default {
       }
     },
 
+    async refreshAll() {
+      await this.loadAll(this.contextToken)
+    },
+
     async loadTunnel(token = this.contextToken) {
       try {
         const response = await cloudflaredApi.tunnel(this.provider, this.tunnelId, { refresh: true })
@@ -148,17 +152,20 @@ export default {
     },
 
     async rotateToken() {
+      const token = this.contextToken
       this.rotating = true
       try {
         const response = await cloudflaredApi.rotateToken(this.provider, this.tunnelId)
+        if (token !== this.contextToken) return
         this.token = response.data?.token || ''
         message.success('令牌已轮换，请用新令牌更新所有副本')
         // 旧副本会断开，恢复轮询以反映最新连接状态
         this.startPolling()
       } catch (error) {
+        if (token !== this.contextToken) return
         message.error(errorMessage(error))
       } finally {
-        this.rotating = false
+        if (token === this.contextToken) this.rotating = false
       }
     },
 
@@ -222,6 +229,7 @@ export default {
     },
 
     async saveRoute(form) {
+      const token = this.contextToken
       this.savingRoute = true
       try {
         let response = null
@@ -233,18 +241,21 @@ export default {
             this.editingRoute.hostname,
             this.editingRoute.path || '',
           )
+          if (token !== this.contextToken) return
           this.notifyDnsOperation(response?.data?.side_effects?.dns?.sync, '路由已更新')
         } else {
           response = await cloudflaredApi.addRoute(this.provider, this.tunnelId, form)
+          if (token !== this.contextToken) return
           this.notifyDnsOperation(response?.data?.side_effects?.dns?.sync, '路由已添加')
         }
         this.showRouteForm = false
         this.editingRoute = null
         await this.loadRoutes()
       } catch (error) {
+        if (token !== this.contextToken) return
         message.error(errorMessage(error))
       } finally {
-        this.savingRoute = false
+        if (token === this.contextToken) this.savingRoute = false
       }
     },
 
@@ -258,12 +269,15 @@ export default {
     },
 
     async removeRoute(route) {
+      const token = this.contextToken
       try {
         const zone = this.matchZone(route.hostname)
         const response = await cloudflaredApi.deleteRoute(this.provider, this.tunnelId, route.hostname, route.path || '', zone?.id || '')
+        if (token !== this.contextToken) return
         this.notifyDnsOperation(response?.data?.side_effects?.dns?.cleanup, '路由已删除')
         await this.loadRoutes()
       } catch (error) {
+        if (token !== this.contextToken) return
         message.error(errorMessage(error))
       }
     },
@@ -290,7 +304,7 @@ export default {
           </a-space>
         </div>
         <div class="page-actions">
-          <a-button :loading="loading" @click="loadAll">刷新</a-button>
+          <a-button :loading="loading" @click="refreshAll">刷新</a-button>
         </div>
       </div>
 

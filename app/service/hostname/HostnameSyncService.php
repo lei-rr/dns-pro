@@ -54,10 +54,10 @@ class HostnameSyncService
      *   - 保留 TXT(允许多条同名共存,用户可能另作他用)
      *   - 保留同名同类型(CNAME) — 由 dnspodSync->sync 决定 update / unchanged
      */
-    public function sync(string $providerId, string $cfZoneName, string $hostnameId): array
+    public function sync(string $providerId, string $cfZoneName, string $hostnameFqdn): array
     {
         $dnspodProviderId = $this->support->requireDnspodProviderId($providerId, self::PROVIDER_TYPE, self::PROVIDER_LABEL);
-        $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameId);
+        $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameFqdn);
         $fqdn = $this->requireFqdn($hostname);
         $dnspodZone = $this->support->resolveDnspodZone($dnspodProviderId, $fqdn, self::PROVIDER_TYPE);
         $records = $this->collectRecords($hostname, $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname));
@@ -67,7 +67,7 @@ class HostnameSyncService
                 'No records available for sync',
                 422,
                 'hostname_no_sync_records',
-                ['provider_id' => $providerId, 'hostname_id' => $hostnameId],
+                ['provider_id' => $providerId, 'hostname_fqdn' => $hostnameFqdn],
             );
         }
 
@@ -79,7 +79,7 @@ class HostnameSyncService
         );
 
         return [
-            'hostname_id' => $hostnameId,
+            'hostname_fqdn' => $fqdn,
             'hostname' => $fqdn,
             'dnspod_zone' => $dnspodZone,
             'precleaned' => $precleaned,
@@ -263,11 +263,7 @@ class HostnameSyncService
             return $custom;
         }
 
-        try {
-            return (string) ($this->hostnames->fallbackOrigin($providerId, $cfZoneName) ?? '');
-        } catch (\Throwable) {
-            return '';
-        }
+        return (string) ($this->hostnames->fallbackOrigin($providerId, $cfZoneName) ?? '');
     }
 
     /**

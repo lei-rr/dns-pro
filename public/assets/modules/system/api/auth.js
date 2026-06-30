@@ -1,4 +1,5 @@
 import http from '../../../shared/utils/request.js'
+import { clearProvidersCache } from '../../../providers/store.js'
 
 const endpoints = {
   session: '/session',
@@ -15,7 +16,12 @@ export function clearAuthCache() {
   mePromise = null
 }
 
-window.addEventListener('auth-invalidated', clearAuthCache)
+function handleAuthInvalidated() {
+  clearAuthCache()
+  clearProvidersCache()
+}
+
+window.addEventListener('auth-invalidated', handleAuthInvalidated)
 
 export const authApi = {
   captchaUrl: () => `/captcha?t=${Date.now()}`,
@@ -24,7 +30,7 @@ export const authApi = {
     return rememberMe(response)
   },
   logout: async () => {
-    clearAuthCache()
+    handleAuthInvalidated()
     return http.delete(endpoints.session)
   },
   me: () => {

@@ -24,10 +24,11 @@ class CloudflareDnsRecordController
     public function zoneIndex(string $providerId, string $zone): Response
     {
         $filters = $this->queryInput(CloudflareRecordValidate::class, 'index');
+        $zoneId = $this->zoneId($providerId, $zone);
 
         return ApiResponse::data($this->records->list(
             $providerId,
-            $this->zones->idByName($providerId, $zone),
+            $zoneId,
             $filters,
         ));
     }
@@ -35,9 +36,10 @@ class CloudflareDnsRecordController
     public function zoneStore(string $providerId, string $zone): Response
     {
         $data = $this->postInput(CloudflareRecordValidate::class, 'record');
+        $zoneId = $this->zoneId($providerId, $zone);
 
         return ApiResponse::data(
-            $this->records->create($providerId, $this->zones->idByName($providerId, $zone), $data),
+            $this->records->create($providerId, $zoneId, $data),
             201,
         );
     }
@@ -45,16 +47,26 @@ class CloudflareDnsRecordController
     public function zoneUpdate(string $providerId, string $zone, string $recordId): Response
     {
         $data = $this->putInput(CloudflareRecordValidate::class, 'record');
+        $zoneId = $this->zoneId($providerId, $zone);
 
         return ApiResponse::data(
-            $this->records->update($providerId, $this->zones->idByName($providerId, $zone), $recordId, $data),
+            $this->records->update($providerId, $zoneId, $recordId, $data),
         );
     }
 
     public function zoneDelete(string $providerId, string $zone, string $recordId): Response
     {
+        $zoneId = $this->zoneId($providerId, $zone);
+
         return ApiResponse::data(
-            $this->records->delete($providerId, $this->zones->idByName($providerId, $zone), $recordId),
+            $this->records->delete($providerId, $zoneId, $recordId),
         );
+    }
+
+    private function zoneId(string $providerId, string $zone): string
+    {
+        $zone = strtolower(trim(rawurldecode($zone)));
+
+        return $this->zones->idByName($providerId, $zone);
     }
 }

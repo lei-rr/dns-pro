@@ -49,9 +49,10 @@ class HostnameController
     public function hostnames(string $providerId, string $zoneName): Response
     {
         $query = $this->queryInput(HostnameValidate::class, 'listHostnames');
+
         return ApiResponse::data($this->workflow->hostnames(
             $providerId,
-            trim(rawurldecode($zoneName)),
+            $this->zoneName($zoneName),
             (int) ($query['page'] ?? 1),
             (int) ($query['per_page'] ?? 100),
             (bool) ($query['refresh'] ?? false),
@@ -61,9 +62,10 @@ class HostnameController
     public function store(string $providerId, string $zoneName): Response
     {
         $data = $this->postInput(HostnameValidate::class, 'store');
+
         return ApiResponse::data($this->workflow->createHostname(
             $providerId,
-            trim(rawurldecode($zoneName)),
+            $this->zoneName($zoneName),
             $data,
             $this->boolQuery('auto_sync'),
         ), 201);
@@ -75,8 +77,8 @@ class HostnameController
 
         return ApiResponse::data($this->hostnames->showHostname(
             $providerId,
-            trim(rawurldecode($zoneName)),
-            trim(rawurldecode($hostnameFqdn)),
+            $this->zoneName($zoneName),
+            $this->hostnameFqdn($hostnameFqdn),
             (bool) ($query['refresh'] ?? false),
         ));
     }
@@ -84,10 +86,11 @@ class HostnameController
     public function update(string $providerId, string $zoneName, string $hostnameFqdn): Response
     {
         $data = $this->putInput(HostnameValidate::class, 'update');
+
         return ApiResponse::data($this->workflow->updateHostname(
             $providerId,
-            trim(rawurldecode($zoneName)),
-            trim(rawurldecode($hostnameFqdn)),
+            $this->zoneName($zoneName),
+            $this->hostnameFqdn($hostnameFqdn),
             $data,
             $this->boolQuery('auto_sync'),
         ));
@@ -97,8 +100,8 @@ class HostnameController
     {
         return ApiResponse::data($this->workflow->refreshHostname(
             $providerId,
-            trim(rawurldecode($zoneName)),
-            trim(rawurldecode($hostnameFqdn)),
+            $this->zoneName($zoneName),
+            $this->hostnameFqdn($hostnameFqdn),
         ));
     }
 
@@ -106,8 +109,8 @@ class HostnameController
     {
         return ApiResponse::data($this->workflow->deleteHostname(
             $providerId,
-            trim(rawurldecode($zoneName)),
-            trim(rawurldecode($hostnameFqdn)),
+            $this->zoneName($zoneName),
+            $this->hostnameFqdn($hostnameFqdn),
             $this->boolQuery('auto_cleanup', true),
         ));
     }
@@ -118,7 +121,7 @@ class HostnameController
 
         return ApiResponse::data($this->hostnames->fallbackOriginInfo(
             $providerId,
-            trim(rawurldecode($zoneName)),
+            $this->zoneName($zoneName),
             (bool) ($query['refresh'] ?? false),
         ));
     }
@@ -129,7 +132,7 @@ class HostnameController
 
         return ApiResponse::data($this->hostnames->setFallbackOrigin(
             $providerId,
-            trim(rawurldecode($zoneName)),
+            $this->zoneName($zoneName),
             (string) $data['origin'],
         ));
     }
@@ -138,7 +141,17 @@ class HostnameController
     {
         return ApiResponse::data($this->hostnames->deleteFallbackOrigin(
             $providerId,
-            trim(rawurldecode($zoneName)),
+            $this->zoneName($zoneName),
         ));
+    }
+
+    private function zoneName(string $zoneName): string
+    {
+        return trim(rawurldecode($zoneName));
+    }
+
+    private function hostnameFqdn(string $hostnameFqdn): string
+    {
+        return trim(rawurldecode($hostnameFqdn));
     }
 }

@@ -71,12 +71,3 @@ export function replaceProvidersCache(providers) {
 export function getCachedProvider(providerId) {
   return (useProviderStore().providers || []).find((provider) => provider.id === providerId) || null
 }
-
-window.addEventListener('providers-updated', (event) => {
-  if (Array.isArray(event.detail?.providers)) {
-    replaceProvidersCache(event.detail.providers)
-    return
-  }
-
-  clearProvidersCache()
-})

@@ -105,13 +105,21 @@ class CloudflareZoneGateway
 
     public function idByName(string $providerId, string $name, bool $refresh = false): string
     {
-        $zones = $this->list($providerId, 1, 1, $name, $refresh);
+        $name = strtolower(trim(rawurldecode($name)));
+        $page = 1;
 
-        foreach ($zones['items'] as $zone) {
-            if (strcasecmp((string) ($zone['name'] ?? ''), $name) === 0 && (string) ($zone['id'] ?? '') !== '') {
-                return (string) $zone['id'];
+        do {
+            $zones = $this->list($providerId, $page, 100, $name, $refresh);
+
+            foreach ($zones['items'] as $zone) {
+                if (strcasecmp((string) ($zone['name'] ?? ''), $name) === 0 && (string) ($zone['id'] ?? '') !== '') {
+                    return (string) $zone['id'];
+                }
             }
-        }
+
+            $page++;
+            $totalPages = (int) ($zones['pagination']['total_pages'] ?? $zones['meta']['total_pages'] ?? 1);
+        } while ($page <= $totalPages);
 
         throw new ApiException('Cloudflare zone not found', 404, 'cloudflare_zone_not_found', [
             'provider_id' => $providerId,
@@ -136,11 +144,7 @@ class CloudflareZoneGateway
 
         $provider = $this->findProvider($providerId);
 
-        try {
-            $payload = $this->client->get($provider, 'zones/' . rawurlencode($zoneId) . '/dcv_delegation/uuid');
-        } catch (\Throwable) {
-            return '';
-        }
+        $payload = $this->client->get($provider, 'zones/' . rawurlencode($zoneId) . '/dcv_delegation/uuid');
 
         $uuid = (string) ($payload['result']['uuid'] ?? '');
 

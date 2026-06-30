@@ -15,6 +15,7 @@ export default {
       creating: false,
       showCreate: false,
       loadRequestToken: 0,
+      contextToken: 0,
     }
   },
   computed: {
@@ -33,7 +34,7 @@ export default {
     await this.load()
   },
   watch: {
-    provider() { this.tunnels = []; this.showCreate = false; this.load() },
+    provider() { this.contextToken += 1; this.tunnels = []; this.showCreate = false; this.load() },
   },
   methods: {
     statusLabel,
@@ -60,18 +61,21 @@ export default {
     openCreate() { this.showCreate = true },
 
     async create(name) {
+      const contextToken = this.contextToken
       this.creating = true
       try {
         const response = await cloudflaredApi.createTunnel(this.provider, name)
+        if (contextToken !== this.contextToken) return
         const tunnel = response.data?.tunnel || {}
         this.showCreate = false
         message.success('隧道已创建')
         // 跳转到详情页
         this.$router.push(this.detailPath(tunnel))
       } catch (error) {
+        if (contextToken !== this.contextToken) return
         message.error(errorMessage(error))
       } finally {
-        this.creating = false
+        if (contextToken === this.contextToken) this.creating = false
       }
     },
 
@@ -85,11 +89,14 @@ export default {
     },
 
     async remove(tunnel) {
+      const contextToken = this.contextToken
       try {
         await cloudflaredApi.deleteTunnel(this.provider, tunnel.id)
+        if (contextToken !== this.contextToken) return
         message.success('已删除')
         await this.load({ refresh: true })
       } catch (error) {
+        if (contextToken !== this.contextToken) return
         message.error(errorMessage(error))
       }
     },
@@ -103,7 +110,7 @@ export default {
       <div class="page-toolbar">
         <div>
           <a-typography-title :level="3" style="margin-bottom: 4px">Cloudflare Tunnel</a-typography-title>
-          <a-typography-text type="secondary">隧道列表，状态每 3 秒自动刷新</a-typography-text>
+          <a-typography-text type="secondary">隧道列表，详情页在未连接时会自动刷新状态</a-typography-text>
         </div>
         <div class="page-actions">
           <a-button :loading="loading" @click="load({ refresh: true })">刷新</a-button>

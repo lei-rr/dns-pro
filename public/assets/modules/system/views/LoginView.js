@@ -9,6 +9,10 @@ export default {
   async mounted() {
     try {
       const response = await authApi.me()
+      if (response.data?.authenticated) {
+        this.$router.replace('/')
+        return
+      }
       this.captchaRequired = !!response.data?.captcha_required
       if (this.captchaRequired) this.refreshCaptcha()
     } catch (error) {

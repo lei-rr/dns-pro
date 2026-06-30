@@ -1,7 +1,5 @@
-import { loadProviders, useProviderStore } from '../providers/store.js'
+import { useProviderStore } from '../providers/store.js'
 import { resolveChildRoute, resolveEntryRoute } from './utils.js'
-import { message } from '../shared/plugins/antDesignVue.js'
-import { errorMessage } from '../shared/utils/errors.js'
 
 function routeView(child = false) {
   return {
@@ -21,26 +19,6 @@ function routeView(child = false) {
       },
       componentProps() {
         return { provider: this.routeId, ...(this.routeEntry?.props || {}) }
-      },
-    },
-    async mounted() {
-      this._onProvidersUpdated = () => this.load()
-      window.addEventListener('providers-updated', this._onProvidersUpdated)
-      await this.load()
-    },
-    beforeUnmount() {
-      window.removeEventListener('providers-updated', this._onProvidersUpdated)
-    },
-    watch: {
-      '$route.params.provider': 'load',
-    },
-    methods: {
-      async load() {
-        try {
-          await loadProviders()
-        } catch (error) {
-          message.error(errorMessage(error))
-        }
       },
     },
     template: `

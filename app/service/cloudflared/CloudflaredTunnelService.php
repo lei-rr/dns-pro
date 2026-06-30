@@ -12,10 +12,11 @@ use app\service\concerns\ProviderServiceConcern;
 /**
  * Cloudflare Tunnel 服务
  *
- * 封装隧道 CRUD、token 获取、ingress 配置、DNS 路由（在 CF zone 建 CNAME）。
+ * 领域服务：封装隧道生命周期相关能力（列表、详情、创建、删除、token 获取与轮换）。
+ * ingress 配置与 DNS 路由编排由 CloudflaredRouteService 负责。
  *
  * 模块边界：
- *   - 依赖 cloudflare 模块的 ApiClient / ZoneService / DnsRecordService（单向）
+ *   - 依赖 cloudflare 模块的 ApiClient（单向）
  *   - 通过 cloudflared provider 的 cloudflare_provider 字段找到关联的 CF 凭据
  *   - 不依赖 dnspod / edgeone / hostname 模块
  */
@@ -135,8 +136,10 @@ class CloudflaredTunnelService
         // CF 要求删除前先清理连接
         try {
             $this->client->delete($provider, "accounts/{$accountId}/cfd_tunnel/{$tunnelId}/connections");
-        } catch (\Throwable) {
-            // 无连接时会 404，忽略
+        } catch (ApiException $e) {
+            if (!$this->isTunnelConnectionNotFound($e)) {
+                throw $e;
+            }
         }
 
         $this->client->delete($provider, "accounts/{$accountId}/cfd_tunnel/{$tunnelId}");
@@ -239,6 +242,11 @@ class CloudflaredTunnelService
         $payload = $this->client->get($provider, "accounts/{$accountId}/cfd_tunnel/{$tunnelId}/token");
 
         return (string) ($payload['result'] ?? '');
+    }
+
+    private function isTunnelConnectionNotFound(ApiException $e): bool
+    {
+        return (int) ($e->getDetails()['http_status'] ?? 0) === 404;
     }
 
     private function tunnelCacheTag(string $providerId): string

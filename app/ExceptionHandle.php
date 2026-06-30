@@ -52,7 +52,7 @@ class ExceptionHandle extends Handle
     {
         if ($e instanceof ApiException) {
             $code = $e->getErrorCode();
-            $message = ErrorMessages::translate($code) ?? $e->getMessage();
+            $message = $this->apiExceptionMessage($e);
 
             return ApiResponse::error($message, $e->getStatus(), $code, $e->getDetails());
         }
@@ -84,5 +84,52 @@ class ExceptionHandle extends Handle
                 'message' => $e->getMessage(),
             ] : [],
         );
+    }
+
+    private function apiExceptionMessage(ApiException $e): string
+    {
+        $code = $e->getErrorCode();
+        $translated = ErrorMessages::translate($code);
+        if ($translated === null) {
+            return $e->getMessage();
+        }
+
+        if ($code === 'cloudflare_request_failed') {
+            $detail = $this->upstreamErrorDetail($e);
+            if ($detail !== '') {
+                return $translated . '：' . $detail;
+            }
+        }
+
+        return $translated;
+    }
+
+    private function upstreamErrorDetail(ApiException $e): string
+    {
+        $errors = $e->getDetails()['errors'] ?? [];
+        if (is_array($errors) && isset($errors[0])) {
+            $first = $errors[0];
+
+            if (is_array($first)) {
+                $detail = trim((string) ($first['message'] ?? $first['error'] ?? ''));
+                if ($detail !== '') {
+                    return $detail;
+                }
+            }
+
+            if (is_string($first) && trim($first) !== '') {
+                return trim($first);
+            }
+        }
+
+        $message = trim($e->getMessage());
+        if (str_contains($message, ':')) {
+            $detail = trim(substr($message, strpos($message, ':') + 1));
+            if ($detail !== '') {
+                return $detail;
+            }
+        }
+
+        return '';
     }
 }

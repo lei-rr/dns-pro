@@ -1,6 +1,8 @@
 import { authApi } from '../api/auth.js'
 import { loadProviders, useProviderStore } from '../../../providers/store.js'
 import { providerMenuEntries, selectedMenuKey } from '../../../routes/utils.js'
+import { message } from '../../../shared/plugins/antDesignVue.js'
+import { errorMessage } from '../../../shared/utils/errors.js'
 
 const { h } = Vue
 const { RouterLink } = VueRouter
@@ -24,18 +26,14 @@ export default {
     },
   },
   async mounted() {
-    this._onProvidersUpdated = () => this.loadProviders()
-    window.addEventListener('providers-updated', this._onProvidersUpdated)
     await this.loadProviders()
-  },
-  beforeUnmount() {
-    window.removeEventListener('providers-updated', this._onProvidersUpdated)
   },
   methods: {
     async loadProviders() {
       try {
         await loadProviders()
-      } catch {
+      } catch (error) {
+        message.error(errorMessage(error))
       }
     },
     async logout() {

@@ -92,8 +92,8 @@ class CloudflaredTunnelController
     {
         $data = $this->putInput(CloudflaredValidate::class, 'route');
 
-        $originalHostname = trim((string) input('get.original_hostname', ''));
-        $originalPath = (string) input('get.original_path', '');
+        $originalHostname = $this->originalHostname();
+        $originalPath = $this->originalPath();
 
         if ($originalHostname === '') {
             $originalHostname = (string) $data['hostname'];
@@ -113,9 +113,9 @@ class CloudflaredTunnelController
 
     public function deleteRoute(string $providerId, string $tunnelId): Response
     {
-        $hostname = trim((string) input('get.hostname', ''));
-        $path = (string) input('get.path', '');
-        $zoneId = trim((string) input('get.zone_id', ''));
+        $hostname = $this->routeHostname();
+        $path = $this->routePath();
+        $zoneId = $this->routeZoneId();
 
         return ApiResponse::data($this->routes->deleteRoute($providerId, $tunnelId, $hostname, $path, $zoneId));
     }
@@ -139,5 +139,30 @@ class CloudflaredTunnelController
             'zone_id' => (string) $data['zone_id'],
             'path' => (string) ($data['path'] ?? ''),
         ];
+    }
+
+    private function originalHostname(): string
+    {
+        return trim((string) input('get.original_hostname', ''));
+    }
+
+    private function originalPath(): string
+    {
+        return (string) input('get.original_path', '');
+    }
+
+    private function routeHostname(): string
+    {
+        return trim((string) input('get.hostname', ''));
+    }
+
+    private function routePath(): string
+    {
+        return (string) input('get.path', '');
+    }
+
+    private function routeZoneId(): string
+    {
+        return trim((string) input('get.zone_id', ''));
     }
 }

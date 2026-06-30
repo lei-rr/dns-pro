@@ -87,12 +87,8 @@ class HostnameService
         [$cfId, $zoneId, $hostnameId] = $this->resolveHostname($providerId, $zoneName, $hostnameFqdn);
 
         $hostname = $this->cloudflareHostnames->show($cfId, $zoneId, $hostnameId, $refresh);
-        $ssl = $hostname['ssl'] ?? [];
-        $hostname['ssl'] = $ssl;
-        $hostname['ssl']['dcv_delegation_uuid'] = ($ssl['dcv_delegation_uuid'] ?? '')
-            ?: $this->cloudflareZones->dcvDelegationUuid($cfId, $zoneId);
 
-        return $this->mergePreference($hostname, $this->preferences->get($cfId, $hostnameId));
+        return $this->enrichDetailedHostname($hostname, $cfId, $zoneId, $hostnameId);
     }
 
     /**
@@ -115,13 +111,7 @@ class HostnameService
         $hostname = $this->cloudflareHostnames->show($cfId, $zoneId, $hostnameId, true);
         $this->cloudflareHostnames->invalidate($cfId, $zoneId);
 
-        $ssl = $hostname['ssl'] ?? [];
-        $hostname['ssl'] = $ssl;
-        $hostname['ssl']['dcv_delegation_uuid'] = ($ssl['dcv_delegation_uuid'] ?? '')
-            ?: $this->cloudflareZones->dcvDelegationUuid($cfId, $zoneId);
-        $hostname['previous_status'] = $previousStatus;
-
-        return $this->mergePreference($hostname, $this->preferences->get($cfId, $hostnameId));
+        return $this->enrichDetailedHostname($hostname, $cfId, $zoneId, $hostnameId, $previousStatus);
     }
 
     public function createHostname(string $providerId, string $zoneName, array $data): array
@@ -136,10 +126,7 @@ class HostnameService
             $this->preferences->setPreferredDomain($cfId, $hostnameId, $preferred);
         }
 
-        return $this->mergePreference(
-            $hostname,
-            $hostnameId !== '' ? $this->preferences->get($cfId, $hostnameId) : null,
-        );
+        return $this->withPreference($hostname, $cfId, $hostnameId);
     }
 
     public function updateHostname(string $providerId, string $zoneName, string $hostnameFqdn, array $data): array
@@ -153,7 +140,7 @@ class HostnameService
             $this->preferences->setPreferredDomain($cfId, $hostnameId, $preferred);
         }
 
-        return $this->mergePreference($hostname, $this->preferences->get($cfId, $hostnameId));
+        return $this->withPreference($hostname, $cfId, $hostnameId);
     }
 
     public function deleteHostname(string $providerId, string $zoneName, string $hostnameFqdn): array
@@ -262,6 +249,28 @@ class HostnameService
         $hostname['custom_metadata'] = $metadata === [] ? null : $metadata;
 
         return $hostname;
+    }
+
+    private function withPreference(array $hostname, string $cfId, string $hostnameId): array
+    {
+        return $this->mergePreference(
+            $hostname,
+            $hostnameId !== '' ? $this->preferences->get($cfId, $hostnameId) : null,
+        );
+    }
+
+    private function enrichDetailedHostname(array $hostname, string $cfId, string $zoneId, string $hostnameId, string $previousStatus = ''): array
+    {
+        $ssl = is_array($hostname['ssl'] ?? null) ? $hostname['ssl'] : [];
+        $hostname['ssl'] = $ssl;
+        $hostname['ssl']['dcv_delegation_uuid'] = ($ssl['dcv_delegation_uuid'] ?? '')
+            ?: $this->cloudflareZones->dcvDelegationUuid($cfId, $zoneId);
+
+        if ($previousStatus !== '') {
+            $hostname['previous_status'] = $previousStatus;
+        }
+
+        return $this->withPreference($hostname, $cfId, $hostnameId);
     }
 
     /**

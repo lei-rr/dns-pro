@@ -47,10 +47,17 @@ class CloudflareZoneController
 
     public function delete(string $providerId, string $zone): Response
     {
-        $zone = strtolower(trim(rawurldecode($zone)));
+        $zoneId = $this->zoneId($providerId, $zone);
 
         return ApiResponse::data(
-            $this->zones->delete($providerId, $this->zones->idByName($providerId, $zone)),
+            $this->zones->delete($providerId, $zoneId),
         );
+    }
+
+    private function zoneId(string $providerId, string $zone): string
+    {
+        $zone = strtolower(trim(rawurldecode($zone)));
+
+        return $this->zones->idByName($providerId, $zone);
     }
 }

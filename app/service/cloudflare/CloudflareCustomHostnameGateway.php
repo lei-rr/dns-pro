@@ -144,7 +144,7 @@ class CloudflareCustomHostnameGateway
     {
         $page = 1;
         do {
-            $result = $this->list($cloudflareProviderId, $zoneId, $page, 100, $refresh && $page === 1);
+            $result = $this->list($cloudflareProviderId, $zoneId, $page, 100, $refresh);
             foreach ($result['items'] ?? [] as $item) {
                 if (strtolower((string) ($item['hostname'] ?? '')) === $fqdn) {
                     return (string) ($item['id'] ?? '');

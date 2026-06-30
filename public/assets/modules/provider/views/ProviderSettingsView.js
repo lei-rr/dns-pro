@@ -1,4 +1,5 @@
 import { providerSettingsApi } from '../api/providers.js'
+import { replaceProvidersCache } from '../../../providers/store.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
 import { errorMessage } from '../../../shared/utils/errors.js'
 
@@ -16,6 +17,8 @@ export default {
       draggingProvider: '',
       providerOperation: null,
       providerDefinitions: null,
+      loadRequestToken: 0,
+      definitionLoadRequestToken: 0,
     }
   },
   async mounted() {
@@ -24,34 +27,40 @@ export default {
   },
   methods: {
     async loadProviderDefinitions() {
+      const requestToken = this.definitionLoadRequestToken + 1
+      this.definitionLoadRequestToken = requestToken
+
       try {
-        this.providerDefinitions = (await providerSettingsApi.providerDefinitions()).data
+        const definitions = (await providerSettingsApi.providerDefinitions()).data
+        if (requestToken !== this.definitionLoadRequestToken) return
+        this.providerDefinitions = definitions
       } catch {
+        if (requestToken !== this.definitionLoadRequestToken) return
         this.providerDefinitions = null
       }
     },
     async load() {
+      const requestToken = this.loadRequestToken + 1
+      this.loadRequestToken = requestToken
       this.loading = true
+
       try {
-        this.providers = (await providerSettingsApi.providers()).data
-        this.notifyProvidersUpdated()
+        const providers = (await providerSettingsApi.providers()).data
+        if (requestToken !== this.loadRequestToken) return
+        this.providers = providers
+        replaceProvidersCache(providers)
       } catch (error) {
+        if (requestToken !== this.loadRequestToken) return
         message.error(errorMessage(error))
       } finally {
-        this.loading = false
+        if (requestToken === this.loadRequestToken) this.loading = false
       }
     },
     edit(provider) {
       this.editing = provider
-      this.form = Object.fromEntries(provider.editable_fields.map((field) => [field, '']))
-      if (provider.type === 'edgeone') this.form.dnspod_provider = provider.dnspod_provider || this.dnspodProviders[0]?.id || ''
-      if (provider.type === 'hostname') {
-        this.form.cloudflare_provider = provider.cloudflare_provider || this.cloudflareProviders[0]?.id || ''
-        this.form.dnspod_provider = provider.dnspod_provider || ''
-      }
-      if (provider.type === 'cloudflared') {
-        this.form.cloudflare_provider = provider.cloudflare_provider || this.cloudflareProviders[0]?.id || ''
-      }
+      this.form = Object.fromEntries(
+        provider.editable_fields.map((field) => [field, this.editFieldValue(provider, field)]),
+      )
     },
     openCreate() {
       this.createForm = { id: '', name: '', type: 'dnspod' }
@@ -65,11 +74,7 @@ export default {
       const fields = this.createFields(type)
       const next = { id: this.createForm.id, name: this.createForm.name, type }
       for (const field of fields) {
-        if (field === 'dnspod_provider') {
-          next[field] = this.dnspodProviders[0]?.id || ''
-        } else if (field === 'cloudflare_provider') {
-          next[field] = this.cloudflareProviders[0]?.id || ''
-        }
+        next[field] = this.defaultSelectFieldValue(field)
       }
       this.createForm = next
     },
@@ -126,8 +131,8 @@ export default {
       try {
         const response = await providerSettingsApi.updateProviderOrder(next.map((provider) => provider.id))
         this.providers = response.data
+        replaceProvidersCache(this.providers)
         message.success('API 顺序已保存')
-        this.notifyProvidersUpdated()
       } catch (error) {
         this.providers = previous
         message.error(errorMessage(error))
@@ -140,7 +145,7 @@ export default {
       this.saving = true
       try {
         const fields = this.createFields()
-        const reserved = ['home', 'login', 'providers']
+        const reserved = ['home', 'login', 'providers', 'user']
         const id = this.createForm.id.trim().toLowerCase()
         if (!id) {
           message.warning('请输入配置标识')
@@ -257,6 +262,15 @@ export default {
     fieldLabel(field) {
       return this.providerDefinitions?.labels?.[field] || field
     },
+    editFieldValue(provider, field) {
+      if (this.isSecretField(field)) return ''
+      if (!this.isProviderSelectField(field)) return provider[field] || ''
+      return this.defaultSelectFieldValue(field, provider[field] || '')
+    },
+    defaultSelectFieldValue(field, currentValue = '') {
+      if (!this.isProviderSelectField(field)) return currentValue
+      return currentValue || this.selectFieldProviders(field)[0]?.id || ''
+    },
     requiredFields(type) {
       return this.providerDefinition(type)?.required || []
     },
@@ -280,17 +294,10 @@ export default {
       return field.includes('key') || field.includes('token')
     },
     configTags(provider) {
-      if (['dnspod', 'cloudflare'].includes(provider.type)) {
-        return [{ label: 'API Token', value: provider.configured ? '已配置' : '未配置' }]
-      }
-
       return provider.editable_fields.map((field) => ({
         label: this.fieldLabel(field),
         value: provider.fields[field] || '未配置',
       }))
-    },
-    notifyProvidersUpdated() {
-      window.dispatchEvent(new CustomEvent('providers-updated', { detail: { providers: this.providers } }))
     },
   },
   computed: {

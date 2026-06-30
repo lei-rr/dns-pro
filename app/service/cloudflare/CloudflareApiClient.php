@@ -91,10 +91,12 @@ class CloudflareApiClient
             }
 
             $detail = $firstMessage !== '' ? 'Cloudflare request failed: ' . $firstMessage : 'Cloudflare request failed';
+            $httpStatus = $response->getStatusCode();
+            $status = $httpStatus >= 400 && $httpStatus <= 599 ? $httpStatus : 502;
 
-            throw new ApiException($detail, 502, 'cloudflare_request_failed', [
+            throw new ApiException($detail, $status, 'cloudflare_request_failed', [
                 'provider_id' => $provider['id'] ?? null,
-                'http_status' => $response->getStatusCode(),
+                'http_status' => $httpStatus,
                 'errors' => $errors,
             ]);
         }

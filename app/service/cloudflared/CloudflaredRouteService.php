@@ -199,10 +199,7 @@ class CloudflaredRouteService
         if (count($stillUsed) > 0) {
             $dnsResult = ['action' => 'kept', 'reason' => 'hostname_still_used'];
         } else {
-            $resolvedZoneId = $zoneId !== '' ? $zoneId : $this->resolveZoneId($cfProviderId, $normalizedHostname);
-            $dnsResult = $resolvedZoneId !== ''
-                ? $this->removeCname($cfProviderId, $resolvedZoneId, $normalizedHostname, $tunnelId)
-                : ['action' => 'skipped', 'reason' => 'zone_not_found'];
+            $dnsResult = $this->safeRemoveCname($cfProviderId, $zoneId, $normalizedHostname, $tunnelId);
         }
 
         $this->invalidateCache($this->tunnelConfigCacheTag($providerId, $tunnelId));
@@ -326,6 +323,19 @@ class CloudflaredRouteService
         }
     }
 
+    private function safeRemoveCname(string $cfProviderId, string $zoneId, string $hostname, string $tunnelId): array
+    {
+        try {
+            $resolvedZoneId = $zoneId !== '' ? $zoneId : $this->resolveZoneId($cfProviderId, $hostname);
+
+            return $resolvedZoneId !== ''
+                ? $this->removeCname($cfProviderId, $resolvedZoneId, $hostname, $tunnelId)
+                : ['action' => 'skipped', 'reason' => 'zone_not_found'];
+        } catch (\Throwable $e) {
+            return ['action' => 'failed', 'error' => $e->getMessage()];
+        }
+    }
+
     private function normalizeDnsOperation(array $result, string $defaultMessage): array
     {
         $action = (string) ($result['action'] ?? 'unknown');
@@ -344,14 +354,7 @@ class CloudflaredRouteService
     {
         $cnameTarget = "{$tunnelId}.cfargotunnel.com";
 
-        $existing = $this->cfDns->list($cfProviderId, $zoneId, [
-            'type' => 'CNAME',
-            'search' => $hostname,
-            'page' => 1,
-            'per_page' => 10,
-        ]);
-
-        foreach ($existing['items'] ?? [] as $record) {
+        foreach ($this->exactCnameMatches($cfProviderId, $zoneId, $hostname) as $record) {
             if (($record['name'] ?? '') !== $hostname) {
                 continue;
             }
@@ -385,14 +388,7 @@ class CloudflaredRouteService
     {
         $cnameTarget = "{$tunnelId}.cfargotunnel.com";
 
-        $existing = $this->cfDns->list($cfProviderId, $zoneId, [
-            'type' => 'CNAME',
-            'search' => $hostname,
-            'page' => 1,
-            'per_page' => 10,
-        ]);
-
-        foreach ($existing['items'] ?? [] as $record) {
+        foreach ($this->exactCnameMatches($cfProviderId, $zoneId, $hostname) as $record) {
             if (($record['name'] ?? '') === $hostname && ($record['content'] ?? '') === $cnameTarget) {
                 $this->cfDns->delete($cfProviderId, $zoneId, (string) $record['id']);
                 return ['action' => 'deleted', 'record_id' => $record['id']];
@@ -417,6 +413,38 @@ class CloudflaredRouteService
         }
     }
 
+    /**
+     * Cloudflare 的 search 是模糊匹配，必须翻页过滤出 name 精确命中的 CNAME。
+     * 否则记录较多时，精确记录可能不在第一页结果里。
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function exactCnameMatches(string $cfProviderId, string $zoneId, string $hostname): array
+    {
+        $page = 1;
+        $matches = [];
+
+        do {
+            $result = $this->cfDns->list($cfProviderId, $zoneId, [
+                'type' => 'CNAME',
+                'search' => $hostname,
+                'page' => $page,
+                'per_page' => 100,
+            ]);
+
+            foreach ($result['items'] ?? [] as $record) {
+                if (($record['name'] ?? '') === $hostname) {
+                    $matches[] = $record;
+                }
+            }
+
+            $page++;
+            $totalPages = (int) ($result['pagination']['total_pages'] ?? $result['meta']['total_pages'] ?? 1);
+        } while ($page <= $totalPages);
+
+        return $matches;
+    }
+
     private function resolveZoneId(string $cfProviderId, string $fqdn): string
     {
         $fqdn = strtolower(rtrim(trim($fqdn), '.'));
@@ -424,11 +452,7 @@ class CloudflaredRouteService
             return '';
         }
 
-        try {
-            $zones = $this->cfZones->list($cfProviderId, 1, 100);
-        } catch (\Throwable) {
-            return '';
-        }
+        $zones = $this->cfZones->list($cfProviderId, 1, 100);
 
         $bestName = '';
         $bestId = '';

@@ -313,7 +313,7 @@ export default {
           <a-input-search v-model:value="keyword" placeholder="搜索记录" allow-clear />
           <a-button v-if="capabilities.importRecords" :disabled="saving || deleting" @click="importRecords">导入</a-button>
           <a-button v-if="capabilities.exportRecords" :disabled="!records.length" @click="exportRecords">导出</a-button>
-          <a-button :loading="loading" :disabled="saving || deleting" @click="load({ refresh: true })">刷新</a-button>
+          <a-button :loading="loading" :disabled="saving || deleting" @click="handleRefresh">刷新</a-button>
           <a-button type="primary" :disabled="saving || deleting" @click="create">添加记录</a-button>
         </div>
       </div>
