@@ -381,12 +381,12 @@ export default {
         :pagination="false"
         :columns="[
           { title: '排序', key: 'sort', width: 64 },
-          { title: '服务商', key: 'name', width: 220 },
+          { title: '服务商', key: 'name', width: 280 },
           { title: 'API 配置', key: 'fields', width: 420 },
           { title: '操作', key: 'actions', width: 150, align: 'right' },
         ]"
         size="middle"
-        :scroll="{ x: 860 }"
+        :scroll="{ x: 920 }"
         :custom-row="providerRowProps"
         :locale="{ emptyText: '暂无服务商配置' }"
       >
@@ -396,9 +396,9 @@ export default {
           </template>
           <template v-else-if="column.key === 'name'">
             <a-space>
-              <a-tag>{{ record.id }}</a-tag>
+              <a-tag>{{ providerDefinition(record.type)?.name || record.type }}</a-tag>
               <span>{{ record.name }}</span>
-              <a-typography-text type="secondary">{{ providerDefinition(record.type)?.name || record.type }}</a-typography-text>
+              <a-typography-text type="secondary">{{ record.id }}</a-typography-text>
             </a-space>
           </template>
           <template v-else-if="column.key === 'fields'">
