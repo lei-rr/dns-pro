@@ -82,7 +82,6 @@ export default {
     columns() {
       const cols = [
         { title: '自定义主机名', dataIndex: 'hostname', key: 'hostname', width: 240 },
-        { title: '同步配置', key: 'sync', width: 220 },
         { title: '证书状态', key: 'ssl_status', width: 100 },
         { title: '到期日期', key: 'expires_on', width: 110 },
         { title: '主机名状态', key: 'status', width: 100 },
@@ -365,14 +364,6 @@ export default {
         this.refreshing = { ...this.refreshing, [record.id]: false }
       }
     },
-    syncConfigText(record) {
-      const target = record.effective_sync_target || record.sync_target || ''
-      const providerId = record.effective_sync_provider_id || record.sync_provider_id || ''
-      const zone = record.effective_sync_zone || record.sync_zone || ''
-      if (!target) return '未配置'
-      const targetLabel = target === 'cloudflare_dns' ? 'Cloudflare DNS' : 'DNSPod'
-      return [targetLabel, providerId, zone].filter(Boolean).join(' / ')
-    },
     // ----- 删除 -----
     askDelete(record) {
       modal.confirm({
@@ -527,11 +518,6 @@ export default {
               <a-avatar size="small" :style="{ background: hostnameAvatarColor() }">{{ hostnameAvatar(record.hostname) }}</a-avatar>
               <a @click="openDetails(record)">{{ record.hostname }}</a>
             </a-space>
-          </template>
-          <template v-else-if="column.key === 'sync'">
-            <a-typography-text :ellipsis="{ tooltip: syncConfigText(record) }" style="max-width: 200px; display: inline-block;">
-              {{ syncConfigText(record) }}
-            </a-typography-text>
           </template>
           <template v-else-if="column.key === 'ssl_status'">
             <a-tag :color="statusColor(record.ssl?.status)">{{ statusLabel(record.ssl?.status) }}</a-tag>

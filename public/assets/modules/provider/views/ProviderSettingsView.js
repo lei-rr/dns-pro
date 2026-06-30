@@ -380,13 +380,13 @@ export default {
         :loading="loading"
         :pagination="false"
         :columns="[
-          { title: '排序', key: 'sort', width: 70 },
-          { title: '服务商', key: 'name', width: 180 },
-          { title: 'API 配置', key: 'fields', width: 360 },
-          { title: '操作', key: 'actions', width: 270, align: 'right' },
+          { title: '排序', key: 'sort', width: 64 },
+          { title: '服务商', key: 'name', width: 220 },
+          { title: 'API 配置', key: 'fields', width: 420 },
+          { title: '操作', key: 'actions', width: 150, align: 'right' },
         ]"
         size="middle"
-        :scroll="{ x: 890 }"
+        :scroll="{ x: 860 }"
         :custom-row="providerRowProps"
         :locale="{ emptyText: '暂无服务商配置' }"
       >
@@ -395,7 +395,11 @@ export default {
             <a-typography-text type="secondary" style="cursor: grab" title="拖动调整顺序" v-bind="sortHandleProps(record)">☰</a-typography-text>
           </template>
           <template v-else-if="column.key === 'name'">
-            <a-space><a-tag>{{ record.type }}</a-tag><span>{{ record.name }}</span></a-space>
+            <a-space>
+              <a-tag>{{ record.id }}</a-tag>
+              <span>{{ record.name }}</span>
+              <a-typography-text type="secondary">{{ providerDefinition(record.type)?.name || record.type }}</a-typography-text>
+            </a-space>
           </template>
           <template v-else-if="column.key === 'fields'">
             <a-space direction="vertical" size="small" style="width: 100%">
