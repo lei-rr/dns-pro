@@ -30,7 +30,7 @@ export default {
     return [{
       ...provider,
       path: providerPath(provider.id),
-      description: '查看 Cloudflare for SaaS 自定义主机名',
+      description: '管理 Cloudflare SaaS 自定义主机名',
       tag: 'Cloudflare SaaS',
       color: brand.color,
       avatarColor: brand.avatarColor,
