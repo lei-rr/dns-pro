@@ -213,7 +213,9 @@ class CloudflaredRouteService
     {
         $cfProviderId = $this->cfProviderIdOf($providerId);
 
-        return $this->cfZones->list($cfProviderId, 1, 100, '', $refresh);
+        return [
+            'items' => $this->allZones($cfProviderId, $refresh),
+        ];
     }
 
     private function cfProvider(string $providerId): array
@@ -452,11 +454,11 @@ class CloudflaredRouteService
             return '';
         }
 
-        $zones = $this->cfZones->list($cfProviderId, 1, 100);
+        $zones = $this->allZones($cfProviderId);
 
         $bestName = '';
         $bestId = '';
-        foreach ($zones['items'] ?? [] as $zone) {
+        foreach ($zones as $zone) {
             $name = strtolower((string) ($zone['name'] ?? ''));
             $id = (string) ($zone['id'] ?? '');
             if ($name === '' || $id === '') {
@@ -469,6 +471,27 @@ class CloudflaredRouteService
         }
 
         return $bestId;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function allZones(string $cfProviderId, bool $refresh = false): array
+    {
+        $items = [];
+        $page = 1;
+
+        do {
+            $result = $this->cfZones->list($cfProviderId, $page, 100, '', $refresh && $page === 1);
+            foreach ($result['items'] ?? [] as $zone) {
+                $items[] = $zone;
+            }
+
+            $page++;
+            $totalPages = (int) ($result['pagination']['total_pages'] ?? $result['meta']['total_pages'] ?? 1);
+        } while ($page <= $totalPages);
+
+        return $items;
     }
 
     private function tunnelConfigCacheTag(string $providerId, string $tunnelId): string

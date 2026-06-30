@@ -1,14 +1,16 @@
 import { edgeOneApi } from '../utils/api.js'
 import { providerAvatarColor } from '../../../providers/branding.js'
 import { providerChildPath } from '../../../routes/paths.js'
+import ListToolbar from '../../../shared/components/ListToolbar.js'
 import { message } from '../../../shared/plugins/antDesignVue.js'
 import { errorMessage } from '../../../shared/utils/errors.js'
-import { tablePagination } from '../../../shared/utils/pagination.js'
+import { mergePaginationMeta, nextPaginationState, paginationState, tablePagination } from '../../../shared/utils/pagination.js'
 
 export default {
+  components: { ListToolbar },
   props: ['provider'],
   data() {
-    return { zones: [], zoneMeta: { page: 1, per_page: 20, total: 0 }, keyword: '', loading: true, loadRequestToken: 0 }
+    return { zones: [], zoneMeta: paginationState(), keyword: '', loading: true, loadRequestToken: 0 }
   },
   computed: {
     filteredZones() {
@@ -40,18 +42,16 @@ export default {
   },
   watch: {
     provider() {
-      this.zoneMeta = { page: 1, per_page: 20, total: 0 }
+      this.zoneMeta = paginationState()
       this.keyword = ''
       this.load()
     },
   },
   methods: {
     handleTableChange(pagination) {
-      const nextPerPage = Number(pagination?.pageSize) || this.zoneMeta.per_page || 20
-      const pageSizeChanged = nextPerPage !== this.zoneMeta.per_page
-      const nextPage = pageSizeChanged ? 1 : (Number(pagination?.current) || 1)
-      if (nextPage === this.zoneMeta.page && nextPerPage === this.zoneMeta.per_page) return
-      this.zoneMeta = { ...this.zoneMeta, page: nextPage, per_page: nextPerPage }
+      const next = nextPaginationState(this.zoneMeta, pagination)
+      if (!next) return
+      this.zoneMeta = next
       this.load()
     },
     async load(options = {}) {
@@ -66,11 +66,7 @@ export default {
         })
         if (requestToken !== this.loadRequestToken) return
         this.zones = response.data
-        this.zoneMeta = {
-          page: response.meta?.page || this.zoneMeta.page,
-          per_page: response.meta?.per_page || this.zoneMeta.per_page,
-          total: response.meta?.total || 0,
-        }
+        this.zoneMeta = mergePaginationMeta(this.zoneMeta, response.meta)
         if (options.refresh) message.success('已刷新')
       } catch (error) {
         if (requestToken !== this.loadRequestToken) return
@@ -110,16 +106,11 @@ export default {
   },
   template: `
     <section>
-      <div class="page-toolbar">
-        <div>
-          <a-typography-title :level="3" style="margin-bottom: 4px">EdgeOne</a-typography-title>
-          <a-typography-text type="secondary">选择站点进入安全加速域名管理。</a-typography-text>
-        </div>
-        <div class="page-actions">
-          <a-input-search v-model:value="keyword" placeholder="搜索站点" allow-clear />
+      <ListToolbar title="EdgeOne" subtitle="选择站点进入安全加速域名管理。" v-model:keyword="keyword" search-placeholder="搜索站点">
+        <template #actions>
           <a-button :loading="loading" @click="load({ refresh: true })">刷新</a-button>
-        </div>
-      </div>
+        </template>
+      </ListToolbar>
       <a-table
         :columns="columns"
         :data-source="filteredZones"

@@ -4,6 +4,7 @@ import { statusColor, statusLabel, formatDate } from '../utils/saas.js'
 import { providerAvatarColor } from '../../../providers/branding.js'
 import { loadProviders } from '../../../providers/store.js'
 import { providerPath } from '../../../routes/paths.js'
+import ListToolbar from '../../../shared/components/ListToolbar.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
 import { errorMessage } from '../../../shared/utils/errors.js'
 import { tablePagination } from '../../../shared/utils/pagination.js'
@@ -14,7 +15,7 @@ import SaasFallbackOriginModal from '../components/SaasFallbackOriginModal.js'
 import PreferredDomainsModal from '../components/PreferredDomainsModal.js'
 
 export default {
-  components: { BatchToolbar, SaasCreateModal, SaasDetailModal, SaasFallbackOriginModal, PreferredDomainsModal },
+  components: { BatchToolbar, ListToolbar, SaasCreateModal, SaasDetailModal, SaasFallbackOriginModal, PreferredDomainsModal },
   props: ['provider', 'zoneName'],
   data() {
     return {
@@ -141,7 +142,11 @@ export default {
           await this.loadSyncZones(requestToken)
         }
         if (requestToken !== this.listLoadRequestToken) return
-        const response = await saasApi.hostnames(this.provider, this.decodedZoneName, { page: 1, per_page: 100, ...options })
+        const response = await saasApi.hostnames(this.provider, this.decodedZoneName, {
+          page: 1,
+          per_page: 100,
+          ...options,
+        })
         if (requestToken !== this.listLoadRequestToken) return
         this.hostnames = response.data
         this.syncSelectedHostnameFromList()
@@ -505,19 +510,14 @@ export default {
   },
   template: `
     <section>
-      <div class="page-toolbar">
-        <div>
-          <a-button type="link" style="padding: 0" @click="$router.push(zonesPath)">返回站点</a-button>
-          <a-typography-title :level="3" style="margin: 4px 0">{{ decodedZoneName }}</a-typography-title>
-          <a-typography-text type="secondary">Cloudflare for SaaS 自定义主机名列表</a-typography-text>
-        </div>
-        <div class="page-actions">
+      <ListToolbar back-text="返回站点" :title="decodedZoneName" subtitle="Cloudflare for SaaS 自定义主机名列表" @back="$router.push(zonesPath)">
+        <template #actions>
           <a-button :loading="loading" @click="handleRefresh">刷新</a-button>
           <a-button :disabled="notFound" @click="openFallbackOrigin">默认回源</a-button>
           <a-button v-if="dnspodLinked" @click="openPreferredManager">优选域名</a-button>
           <a-button type="primary" :disabled="notFound" @click="openCreate">新增主机名</a-button>
-        </div>
-      </div>
+        </template>
+      </ListToolbar>
       <a-alert v-if="syncingText || checkingText" type="warning" show-icon style="margin-bottom: 16px" :message="syncingText || checkingText" />
       <BatchToolbar :count="selectedHostnames.length" :deleting="syncing" delete-text="批量重同步" :actions="[{ key: 'check', label: '批量检查', loading: checking }]" @delete="batchSyncHostnames" @action="key => { if (key === 'check') batchCheckHostnames() }" @clear="clearSelection" />
 

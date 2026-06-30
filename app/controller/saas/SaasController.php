@@ -54,7 +54,7 @@ class SaasController
             $providerId,
             $this->zoneName($zoneName),
             (int) ($query['page'] ?? 1),
-            (int) ($query['per_page'] ?? 100),
+            (int) ($query['per_page'] ?? 20),
             (bool) ($query['refresh'] ?? false),
         ));
     }

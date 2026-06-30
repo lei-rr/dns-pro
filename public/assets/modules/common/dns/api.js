@@ -23,7 +23,7 @@ function zoneQuery(provider, options = {}) {
   const paging = normalizedPaging(options, 20)
   const keyword = String(options.keyword || '').trim()
 
-  if (type === 'cloudflare') {
+  if (type === 'cloudflare' || type === 'saas') {
     return {
       page: paging.page,
       per_page: paging.per_page,
@@ -109,10 +109,10 @@ function presentDomain(provider, domain) {
   }
 }
 
-function presentRecord(provider, record) {
+function presentRecord(provider, domain, record) {
   if (providerType(provider) === 'cloudflare') {
     const fqdn = String(record.name || '')
-    const zoneName = String(record.zone_name || '')
+    const zoneName = String(record.zone_name || domain || '')
     const host = zoneName && fqdn.toLowerCase() === zoneName.toLowerCase()
       ? '@'
       : zoneName && fqdn.toLowerCase().endsWith('.' + zoneName.toLowerCase())
@@ -150,7 +150,7 @@ export const dnsApi = {
   deleteZone: (provider, zone) => http.delete(endpoints.zone(provider, zone)),
   records: async (provider, domain, options) => {
     const response = unwrapItems(await http.get(endpoints.records(provider, domain), withRefresh({ params: recordQuery(provider, options), refresh: options?.refresh })))
-    return { ...response, data: response.data.map((record) => presentRecord(provider, record)) }
+    return { ...response, data: response.data.map((record) => presentRecord(provider, domain, record)) }
   },
   createRecord: (provider, domain, data, options) => http.post(endpoints.records(provider, domain), recordPayload(provider, domain, data, options)),
   updateRecord: (provider, domain, recordId, data, options) => http.put(endpoints.record(provider, domain, recordId), recordPayload(provider, domain, data, options)),

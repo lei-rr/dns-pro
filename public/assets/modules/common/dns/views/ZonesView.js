@@ -3,16 +3,18 @@ import { loadProviders } from '../../../../providers/store.js'
 import { providerPath } from '../../../../routes/paths.js'
 import { resolveProviderAvatarColor, resolveProviderHook } from '../../../../providers/registry.js'
 import { message, modal } from '../../../../shared/plugins/antDesignVue.js'
+import ListToolbar from '../../../../shared/components/ListToolbar.js'
 import { errorMessage } from '../../../../shared/utils/errors.js'
-import { tablePagination } from '../../../../shared/utils/pagination.js'
+import { mergePaginationMeta, nextPaginationState, paginationState, tablePagination } from '../../../../shared/utils/pagination.js'
 import { defaultProviderHook } from '../hook.js'
 
 export default {
+  components: { ListToolbar },
   props: { provider: String, providerMeta: Object },
   data() {
     return {
       zones: [],
-      zoneMeta: { page: 1, per_page: 20, total: 0 },
+      zoneMeta: paginationState(),
       currentProviderMeta: this.providerMeta || null,
       providerHook: defaultProviderHook,
       keyword: '',
@@ -62,7 +64,7 @@ export default {
   watch: {
     provider() {
       this.currentProviderMeta = this.providerMeta || null
-      this.zoneMeta = { page: 1, per_page: 20, total: 0 }
+      this.zoneMeta = paginationState()
       this.keyword = ''
       this.appliedKeyword = ''
       this.showAddZone = false
@@ -94,11 +96,9 @@ export default {
     openAddZone() { this.addZoneName = ''; this.showAddZone = true },
     zoneRouteId(zone) { return zone.name },
     handleTableChange(pagination) {
-      const nextPerPage = Number(pagination?.pageSize) || this.zoneMeta.per_page || 20
-      const pageSizeChanged = nextPerPage !== this.zoneMeta.per_page
-      const nextPage = pageSizeChanged ? 1 : (Number(pagination?.current) || 1)
-      if (nextPage === this.zoneMeta.page && nextPerPage === this.zoneMeta.per_page) return
-      this.zoneMeta = { ...this.zoneMeta, page: nextPage, per_page: nextPerPage }
+      const next = nextPaginationState(this.zoneMeta, pagination)
+      if (!next) return
+      this.zoneMeta = next
       this.load()
     },
     async createZone() {
@@ -160,11 +160,7 @@ export default {
         if (requestToken !== this.loadRequestToken) return
         this.providerHook = resolveProviderHook(this.currentProviderMeta?.type || this.provider)
         this.zones = zones.data
-        this.zoneMeta = {
-          page: zones.meta?.page || this.zoneMeta.page,
-          per_page: zones.meta?.per_page || this.zoneMeta.per_page,
-          total: zones.meta?.total || 0,
-        }
+        this.zoneMeta = mergePaginationMeta(this.zoneMeta, zones.meta)
         if (options.refresh) message.success('已刷新')
       } catch (error) {
         if (requestToken !== this.loadRequestToken) return
@@ -176,17 +172,12 @@ export default {
   },
   template: `
     <section>
-      <div class="page-toolbar">
-        <div>
-          <a-typography-title :level="3" style="margin-bottom: 4px">{{ providerName }}</a-typography-title>
-          <a-typography-text type="secondary">选择域名进入解析管理。</a-typography-text>
-        </div>
-        <div class="page-actions">
-          <a-input-search v-model:value="keyword" placeholder="搜索域名" allow-clear @search="applyKeyword" />
+      <ListToolbar :title="providerName" subtitle="选择域名进入解析管理。" v-model:keyword="keyword" search-placeholder="搜索域名" @search="applyKeyword">
+        <template #actions>
           <a-button :loading="loading" :disabled="deleting" @click="load({ refresh: true })">刷新</a-button>
           <a-button v-if="capabilities.createZone" type="primary" :disabled="loading || deleting" @click="openAddZone">添加域名</a-button>
-        </div>
-      </div>
+        </template>
+      </ListToolbar>
       <a-table :columns="columns" :data-source="filteredZones" :row-key="zone => zone.provider + zone.name" :loading="loading" :pagination="pagination" size="middle" :scroll="{ x: 820 }" :locale="{ emptyText: '暂无域名' }" @change="handleTableChange">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'"><a-space><a-avatar size="small" :style="{ background: avatarColor() }">{{ zoneAvatar(record.name) }}</a-avatar><router-link :to="routeBase() + '/' + encodeURIComponent(zoneRouteId(record))">{{ record.name }}</router-link></a-space></template>

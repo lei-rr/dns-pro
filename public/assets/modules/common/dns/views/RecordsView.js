@@ -3,9 +3,10 @@ import { loadProviders } from '../../../../providers/store.js'
 import { message, modal } from '../../../../shared/plugins/antDesignVue.js'
 import { providerPath } from '../../../../routes/paths.js'
 import { resolveProviderHook } from '../../../../providers/registry.js'
+import ListToolbar from '../../../../shared/components/ListToolbar.js'
 import { chooseJsonFile, downloadJson } from '../../../../shared/utils/files.js'
 import { errorMessage } from '../../../../shared/utils/errors.js'
-import { tablePagination } from '../../../../shared/utils/pagination.js'
+import { mergePaginationMeta, nextPaginationState, paginationState, tablePagination } from '../../../../shared/utils/pagination.js'
 import BatchToolbar from '../../../../shared/components/BatchToolbar.js'
 import RecordForm from '../components/RecordForm.js'
 import RecordTable from '../components/RecordTable.js'
@@ -13,12 +14,12 @@ import { defaultProviderHook } from '../hook.js'
 import { showBatchFailures } from '../../../../shared/utils/batch.js'
 
 export default {
-  components: { BatchToolbar, RecordForm, RecordTable },
+  components: { BatchToolbar, ListToolbar, RecordForm, RecordTable },
   props: { provider: String, domain: String, providerMeta: Object },
   data() {
     return {
       records: [],
-      recordMeta: { page: 1, per_page: 20, total: 0 },
+      recordMeta: paginationState(),
       selectedRecords: [],
       selectionResetKey: 0,
       lines: [],
@@ -29,7 +30,6 @@ export default {
       showForm: false,
       keyword: '',
       appliedKeyword: '',
-      selectedType: '',
       loading: true,
       saving: false,
       deleting: false,
@@ -77,10 +77,6 @@ export default {
         this.applyKeyword()
       }
     },
-    selectedType() {
-      this.recordMeta = { ...this.recordMeta, page: 1, total: 0 }
-      this.load()
-    },
   },
   methods: {
     routeBase() { return providerPath(this.provider) },
@@ -88,10 +84,9 @@ export default {
       this.clearSelection()
       this.editing = null
       this.showForm = false
-      this.recordMeta = { page: 1, per_page: 20, total: 0 }
+      this.recordMeta = paginationState()
       this.keyword = ''
       this.appliedKeyword = ''
-      this.selectedType = ''
       this.currentDomainName = ''
       this.load()
     },
@@ -103,11 +98,9 @@ export default {
       this.load()
     },
     handleTableChange(pagination) {
-      const nextPerPage = Number(pagination?.pageSize) || this.recordMeta.per_page || 20
-      const pageSizeChanged = nextPerPage !== this.recordMeta.per_page
-      const nextPage = pageSizeChanged ? 1 : (Number(pagination?.current) || 1)
-      if (nextPage === this.recordMeta.page && nextPerPage === this.recordMeta.per_page) return
-      this.recordMeta = { ...this.recordMeta, page: nextPage, per_page: nextPerPage }
+      const next = nextPaginationState(this.recordMeta, pagination)
+      if (!next) return
+      this.recordMeta = next
       this.load()
     },
     async load(options = {}) {
@@ -126,17 +119,11 @@ export default {
           page: this.recordMeta.page,
           per_page: this.recordMeta.per_page,
           keyword: this.appliedKeyword,
-          record_type: this.selectedType,
-          type: this.selectedType,
           ...options,
         })
         if (requestToken !== this.loadRequestToken) return
         this.records = records.data
-        this.recordMeta = {
-          page: records.meta?.page || this.recordMeta.page,
-          per_page: records.meta?.per_page || this.recordMeta.per_page,
-          total: records.meta?.total || 0,
-        }
+        this.recordMeta = mergePaginationMeta(this.recordMeta, records.meta)
         this.providerHook = resolveProviderHook(this.providerType)
         this.lines = this.providerHook.recordLines || []
       } catch (error) {
@@ -323,21 +310,14 @@ export default {
   },
   template: `
     <section>
-      <div class="page-toolbar">
-        <div>
-          <a-button type="link" style="padding: 0" @click="$router.push(routeBase())">返回域名</a-button>
-          <a-typography-title :level="3" style="margin: 4px 0">{{ displayDomain }}</a-typography-title>
-          <a-typography-text type="secondary">解析记录</a-typography-text>
-        </div>
-        <div class="page-actions">
-          <a-input-search v-model:value="keyword" placeholder="搜索记录" allow-clear @search="applyKeyword" />
-          <a-select v-model:value="selectedType" :options="[{ label: '全部类型', value: '' }, ...typeOptions]" style="width: 140px" />
+      <ListToolbar back-text="返回域名" :title="displayDomain" subtitle="解析记录" v-model:keyword="keyword" search-placeholder="搜索记录" @back="$router.push(routeBase())" @search="applyKeyword">
+        <template #actions>
           <a-button v-if="capabilities.importRecords" :disabled="saving || deleting" @click="importRecords">导入</a-button>
           <a-button v-if="capabilities.exportRecords" :disabled="!records.length" @click="exportRecords">导出</a-button>
           <a-button :loading="loading" :disabled="saving || deleting" @click="handleRefresh">刷新</a-button>
           <a-button type="primary" :disabled="saving || deleting" @click="create">添加记录</a-button>
-        </div>
-      </div>
+        </template>
+      </ListToolbar>
       <a-alert v-if="deletingText" type="warning" show-icon style="margin-bottom: 16px" :message="deletingText" />
       <BatchToolbar :count="selectedRecords.length" :deleting="deleting" delete-text="批量删除" @delete="askBatchRemove" @clear="clearSelection" />
       <RecordTable
