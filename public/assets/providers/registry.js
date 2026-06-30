@@ -1,6 +1,6 @@
 import dnspodModule from '../modules/dnspod/index.js'
 import cloudflareModule from '../modules/cloudflare/index.js'
-import hostnameModule from '../modules/hostname/index.js'
+import saasModule from '../modules/saas/index.js'
 import edgeOneModule from '../modules/edgeone/index.js'
 import cloudflaredModule from '../modules/cloudflared/index.js'
 import { defaultProviderHook, mergeHook } from '../modules/common/dns/hook.js'
@@ -10,11 +10,11 @@ import { providerAvatarColor } from './branding.js'
  * 前端 provider 模块注册中心
  *
  * 每个模块按 providerType 注册;模块 manifest 必须包含:
- *   - providerType: 与后端 provider.type 一致(dnspod / cloudflare / hostname / edgeone / cloudflared)
+ *   - providerType: 与后端 provider.type 一致(dnspod / cloudflare / saas / edgeone / cloudflared)
  *   - resolveEntry / resolveChild / menuEntries / cards
  *   - hook(可选): DNS 通用视图(ZonesView / RecordsView)用的行为参数
  */
-const providerFrontendModules = [dnspodModule, cloudflareModule, hostnameModule, edgeOneModule, cloudflaredModule]
+const providerFrontendModules = [dnspodModule, cloudflareModule, saasModule, edgeOneModule, cloudflaredModule]
 
 const providerModules = Object.fromEntries(
   providerFrontendModules

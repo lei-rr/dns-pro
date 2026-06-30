@@ -28,6 +28,10 @@ use think\facade\Cache;
  */
 class ProviderRepository
 {
+    private const TYPE_ALIASES = [
+        'hostname' => 'saas',
+    ];
+
     /**
      * 反向引用规则：[被引用类型 => [[引用方字段, 引用方期望类型?]]]
      * 引用方期望类型 null 表示任意类型只要拿该字段引用就匹配。
@@ -76,8 +80,14 @@ class ProviderRepository
     public function rawAll(): array
     {
         $items = $this->store->read()['items'] ?? [];
+        $providers = is_array($items) ? array_values($items) : [];
+        $migrated = array_map(fn (array $provider) => $this->migrateProviderType($provider), $providers);
 
-        return is_array($items) ? array_values($items) : [];
+        if ($providers !== $migrated) {
+            $this->writeMigrated($migrated);
+        }
+
+        return $migrated;
     }
 
     public function all(bool $includeSecrets = false): array
@@ -136,6 +146,10 @@ class ProviderRepository
 
     /**
      * 在同一把文件锁内完成 provider 列表的读改写。
+     *
+     * 重要约束：闭包内部不要再调用本仓储的 present()/all()/find()/rawAll() 等方法，
+     * 否则容易在持锁期间再次回读 providers.json，造成锁重入阻塞。
+     * 闭包内的校验/依赖判断应尽量只基于传入的当前 providers 数组完成。
      *
      * @param callable(array): array $mutator 接收当前 providers，返回新的 providers 列表
      * @return array<int, array<string, mixed>> 写入后的 provider 列表
@@ -211,7 +225,7 @@ class ProviderRepository
             return $this->refConfigured((string) ($provider['dnspod_provider'] ?? ''), 'dnspod');
         }
 
-        if ($type === 'hostname') {
+        if ($type === 'saas') {
             if (!$this->refConfigured((string) ($provider['cloudflare_provider'] ?? ''), 'cloudflare')) {
                 return false;
             }
@@ -291,7 +305,7 @@ class ProviderRepository
      */
     private function normalizeForStorage(array $provider): array
     {
-        $type = (string) ($provider['type'] ?? '');
+        $type = $this->normalizedType((string) ($provider['type'] ?? ''));
         $definition = $this->definitionMap()[$type] ?? null;
 
         $head = [
@@ -312,6 +326,27 @@ class ProviderRepository
         $extras = array_diff_key($provider, array_flip($declared));
 
         return $head + $body + $extras;
+    }
+
+    private function normalizedType(string $type): string
+    {
+        return self::TYPE_ALIASES[$type] ?? $type;
+    }
+
+    private function migrateProviderType(array $provider): array
+    {
+        if (isset($provider['type'])) {
+            $provider['type'] = $this->normalizedType((string) $provider['type']);
+        }
+
+        return $provider;
+    }
+
+    private function writeMigrated(array $providers): void
+    {
+        $this->store->write([
+            'items' => array_values(array_map(fn (array $provider) => $this->normalizeForStorage($provider), $providers)),
+        ]);
     }
 
     // ---------- cache invalidation ----------

@@ -2,32 +2,32 @@
 
 declare(strict_types=1);
 
-namespace app\service\hostname;
+namespace app\service\saas;
 
-use app\repository\HostnamePreferenceRepository;
+use app\repository\SaasPreferenceRepository;
 
 /**
  * Hostname 本地附加属性服务（JSON-backed）
  *
  * Cloudflare custom_metadata 仅企业版可用，所以 hostname 的本地配置（preferred_domain / sync_target / sync_zone 等）
- * 存到 data/hostname/preferences.json，结构：
- *   {"items": {"<cf_provider_id>:<hostname_id>": {"preferred_domain": "...", "sync_target": "...", "sync_provider_id": "...", "sync_zone": "...", "auto_preferred": false}}}
+ * 存到 data/saas/preferences.json，结构：
+ *   {"items": {"<cf_provider_id>:<hostname_id>": {"hostname": "app.example.com", "preferred_domain": "...", "sync_target": "...", "sync_provider_id": "...", "sync_zone": "...", "auto_preferred": false}}}
  *
  * 通过 (cf_provider_id, hostname_id) 二元组定位；字段都为空时整条删除。
  */
-class HostnamePreferenceService
+class SaasPreferenceService
 {
-    private readonly HostnamePreferenceRepository $store;
+    private readonly SaasPreferenceRepository $store;
 
-    public function __construct(?HostnamePreferenceRepository $store = null)
+    public function __construct(?SaasPreferenceRepository $store = null)
     {
-        $this->store = $store ?? new HostnamePreferenceRepository();
+        $this->store = $store ?? new SaasPreferenceRepository();
     }
 
     /**
      * 读取单条 preference；不存在返回 null
      *
-     * @return array{preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}|null
+     * @return array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}|null
      */
     public function get(string $cloudflareProviderId, string $hostnameId): ?array
     {
@@ -40,7 +40,7 @@ class HostnamePreferenceService
     /**
      * 列出指定 cloudflare provider 下的所有 preference，返回 [hostname_id => preference]
      *
-     * @return array<string, array{preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}>
+     * @return array<string, array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}>
      */
     public function listByProvider(string $cloudflareProviderId): array
     {
@@ -74,14 +74,33 @@ class HostnamePreferenceService
         ]);
     }
 
-    public function setSyncConfig(string $cloudflareProviderId, string $hostnameId, string $syncTarget, string $syncProviderId, string $syncZone, bool $autoPreferred): array
+    public function setSyncConfig(string $cloudflareProviderId, string $hostnameId, string $syncTarget, string $syncProviderId, string $syncZone, bool $autoPreferred, string $hostname = ''): array
     {
         return $this->save($cloudflareProviderId, $hostnameId, [
+            'hostname' => trim($hostname),
             'sync_target' => trim($syncTarget),
             'sync_provider_id' => trim($syncProviderId),
             'sync_zone' => strtolower(trim($syncZone)),
             'auto_preferred' => $autoPreferred,
         ]);
+    }
+
+    /**
+     * 返回全部 preference，key 仍为 <cf_provider_id>:<hostname_id>
+     *
+     * @return array<string, array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}>
+     */
+    public function listAll(): array
+    {
+        $items = [];
+        foreach ($this->readItems() as $key => $value) {
+            if (!is_string($key) || !is_array($value)) {
+                continue;
+            }
+            $items[$key] = $this->present($value);
+        }
+
+        return $items;
     }
 
     /**
@@ -115,8 +134,8 @@ class HostnamePreferenceService
     }
 
     /**
-     * @param array{preferred_domain?:string,sync_target?:string,sync_provider_id?:string,sync_zone?:string,auto_preferred?:bool} $changes
-     * @return array{preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}
+     * @param array{hostname?:string,preferred_domain?:string,sync_target?:string,sync_provider_id?:string,sync_zone?:string,auto_preferred?:bool} $changes
+     * @return array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}
      */
     private function save(string $cloudflareProviderId, string $hostnameId, array $changes): array
     {
@@ -128,7 +147,7 @@ class HostnamePreferenceService
             $row = isset($items[$key]) && is_array($items[$key]) ? $items[$key] : [];
             $normalized = $this->present($row);
 
-            foreach (['preferred_domain', 'sync_target', 'sync_provider_id', 'sync_zone'] as $field) {
+            foreach (['hostname', 'preferred_domain', 'sync_target', 'sync_provider_id', 'sync_zone'] as $field) {
                 if (array_key_exists($field, $changes)) {
                     $normalized[$field] = (string) $changes[$field];
                 }
@@ -157,6 +176,7 @@ class HostnamePreferenceService
     private function present(array $row): array
     {
         return [
+            'hostname' => (string) ($row['hostname'] ?? ''),
             'preferred_domain' => (string) ($row['preferred_domain'] ?? ''),
             'sync_target' => (string) ($row['sync_target'] ?? ''),
             'sync_provider_id' => (string) ($row['sync_provider_id'] ?? ''),

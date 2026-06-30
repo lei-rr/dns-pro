@@ -1,24 +1,28 @@
 import http, { unwrapItems, withRefresh } from '../../../shared/utils/request.js'
 
 const path = (value) => encodeURIComponent(value)
-const providerBase = (provider) => `/hostname/providers/${path(provider)}`
+const providerBase = (provider) => `/saas/providers/${path(provider)}`
 const zoneBase = (provider, zone) => `${providerBase(provider)}/zones/${path(zone)}`
 
 const endpoints = {
   hostnames: (provider, zone) => `${zoneBase(provider, zone)}/hostnames`,
   hostname: (provider, zone, hostname) => `${zoneBase(provider, zone)}/hostnames/${path(hostname)}`,
   refreshHostname: (provider, zone, hostname) => `${zoneBase(provider, zone)}/hostnames/${path(hostname)}/refresh`,
+  syncHostname: (provider, zone, hostname) => `${zoneBase(provider, zone)}/hostnames/${path(hostname)}/sync`,
+  checkHostnameSync: (provider, zone, hostname) => `${zoneBase(provider, zone)}/hostnames/${path(hostname)}/sync-check`,
   createHostname: (provider, zone) => `${zoneBase(provider, zone)}/hostnames`,
   fallbackOrigin: (provider, zone) => `${zoneBase(provider, zone)}/fallback-origin`,
-  preferredDomains: () => `/hostname/preferred-domains`,
-  preferredDomain: (domain) => `/hostname/preferred-domains/${path(domain)}`,
-  preferredDomainsSort: () => `/hostname/preferred-domains/sort`,
+  preferredDomains: () => `/saas/preferred-domains`,
+  preferredDomain: (domain) => `/saas/preferred-domains/${path(domain)}`,
+  preferredDomainsSort: () => `/saas/preferred-domains/sort`,
 }
 
-export const hostnameApi = {
+export const saasApi = {
   hostnames: async (provider, zone, options) => unwrapItems(await http.get(endpoints.hostnames(provider, zone), withRefresh({ params: options, refresh: options?.refresh }))),
   hostname: async (provider, zone, hostname, options = {}) => unwrapItems(await http.get(endpoints.hostname(provider, zone, hostname), withRefresh({ params: options, refresh: options?.refresh }))),
   refreshHostname: (provider, zone, hostname) => http.post(endpoints.refreshHostname(provider, zone, hostname)),
+  syncHostname: (provider, zone, hostname) => http.post(endpoints.syncHostname(provider, zone, hostname)),
+  checkHostnameSync: (provider, zone, hostname) => http.post(endpoints.checkHostnameSync(provider, zone, hostname)),
   createHostname: (provider, zone, data, options = {}) => http.post(endpoints.createHostname(provider, zone), data, options.autoSync ? { params: { auto_sync: 1 } } : {}),
   updateHostname: (provider, zone, hostname, data, options = {}) => http.put(endpoints.hostname(provider, zone, hostname), data, options.autoSync ? { params: { auto_sync: 1 } } : {}),
   deleteHostname: (provider, zone, hostname, options = {}) => http.delete(endpoints.hostname(provider, zone, hostname), options.skipCleanup ? { params: { auto_cleanup: 0 } } : {}),

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace app\service\hostname;
+namespace app\service\saas;
 
 use app\exception\ApiException;
 use app\service\dnspod\DnsPodRecordSync;
@@ -11,7 +11,7 @@ use app\service\dnspod\DnsPodSyncSupport;
 /**
  * Hostname → DNSPod 同步服务
  *
- * 当 hostname provider 关联 DNSPod provider 时，把 Cloudflare for SaaS 自定义主机名的 DNS 记录
+ * 当 saas provider 关联 DNSPod provider 时，把 Cloudflare for SaaS 自定义主机名的 DNS 记录
  * 自动同步/清理到 DNSPod：
  *   1. 回源 CNAME (默认线路):   <hostname>                  → custom_origin_server / zone fallback origin
  *   2. 所有权 TXT (默认线路):   ownership_verification.name → .value
@@ -19,9 +19,9 @@ use app\service\dnspod\DnsPodSyncSupport;
  *   4. 优选 CNAME (境内线路):   <hostname>                  → custom_metadata.preferred_domain（仅 auto_preferred 开启时）
  *
  * 通用的 zone 匹配 / 冲突清理 / provider 查找逻辑委托给 DnsPodSyncSupport（dnspod 模块），
- * 本类保留 hostname 业务特有的多记录拼装、active 状态判断、ownership 清理等逻辑。
+ * 本类保留 saas 业务特有的多记录拼装、active 状态判断、ownership 清理等逻辑。
  */
-class HostnameSyncService
+class SaasSyncService
 {
     /** purpose → 短描述(remark 末尾会拼上 hostname fqdn) */
     private const PURPOSE_LABELS = [
@@ -36,13 +36,13 @@ class HostnameSyncService
     /** 回源 CNAME 默认线路 */
     private const DEFAULT_LINE = '默认';
 
-    private const PROVIDER_TYPE = 'hostname';
-    private const PROVIDER_LABEL = 'Hostname';
+    private const PROVIDER_TYPE = 'saas';
+    private const PROVIDER_LABEL = 'SaaS';
 
     public function __construct(
         private readonly DnsPodSyncSupport $support,
         private readonly DnsPodRecordSync $dnspodSync,
-        private readonly HostnameService $hostnames,
+        private readonly SaasService $hostnames,
     ) {
     }
 
@@ -68,7 +68,7 @@ class HostnameSyncService
             throw new ApiException(
                 'No records available for sync',
                 422,
-                'hostname_no_sync_records',
+                'saas_no_sync_records',
                 ['provider_id' => $providerId, 'hostname_fqdn' => $hostnameFqdn],
             );
         }
@@ -85,6 +85,29 @@ class HostnameSyncService
             'hostname' => $fqdn,
             'dnspod_zone' => $dnspodZone,
             'precleaned' => $precleaned,
+            'records' => $results,
+        ];
+    }
+
+    public function check(string $providerId, string $cfZoneName, string $hostnameFqdn): array
+    {
+        $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameFqdn);
+        $fqdn = $this->requireFqdn($hostname);
+        $dnspodProviderId = $this->resolveDnspodProviderId($providerId, $hostname);
+        $dnspodZone = $this->resolveTargetZone($providerId, $dnspodProviderId, $fqdn);
+        $effectiveOrigin = $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname);
+        $this->requireBusinessTarget($effectiveOrigin);
+        $records = $this->collectRecords($hostname, $effectiveOrigin, $dnspodProviderId);
+
+        $results = array_map(
+            fn (array $rec) => $this->withPurpose($rec, $this->dnspodSync->check($dnspodProviderId, $dnspodZone, $rec)),
+            $records,
+        );
+
+        return [
+            'hostname_fqdn' => $fqdn,
+            'hostname' => $fqdn,
+            'dnspod_zone' => $dnspodZone,
             'records' => $results,
         ];
     }
@@ -155,10 +178,10 @@ class HostnameSyncService
     /**
      * 清理 hostname 在 DNSPod 中已经"过期"的辅助记录
      *
-     * 触发时机:刷新 hostname 状态后,如果发现状态已变为 active,所有权验证 TXT 没有继续保留的必要。
+     * 触发时机:刷新 saas 状态后,如果发现状态已变为 active,所有权验证 TXT 没有继续保留的必要。
      *
      * 行为:
-     *   - hostname 状态不是 active → 不做任何事(返 ['enabled' => true, 'cleaned' => 0])
+     *   - saas 状态不是 active → 不做任何事(返 ['enabled' => true, 'cleaned' => 0])
      *   - 没关联 DNSPod / DNSPod zone 找不到 → 跳过
      *   - 否则按 (name + type + line + value) 精确删除 DNSPod 中的所有权 TXT
      */
@@ -166,7 +189,7 @@ class HostnameSyncService
     {
         $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameFqdn, true);
         if (!$this->isHostnameActive($hostname)) {
-            return ['cleaned' => 0, 'reason' => 'hostname_not_active'];
+            return ['cleaned' => 0, 'reason' => 'saas_not_active'];
         }
 
         $fqdn = (string) ($hostname['hostname'] ?? '');
@@ -207,7 +230,7 @@ class HostnameSyncService
         }
         $fqdn = trim($hostnameFqdn);
         if ($fqdn === '') {
-            throw new ApiException('Hostname FQDN missing', 422, 'hostname_fqdn_missing');
+            throw new ApiException('SaaS hostname FQDN missing', 422, 'saas_fqdn_missing');
         }
 
         $dnspodZone = $this->resolveTargetZone($providerId, $dnspodProviderId, $fqdn, (string) ($data['sync_zone'] ?? ''));
@@ -268,7 +291,7 @@ class HostnameSyncService
     {
         $fqdn = (string) ($hostname['hostname'] ?? '');
         if ($fqdn === '') {
-            throw new ApiException('Hostname FQDN missing', 422, 'hostname_fqdn_missing');
+            throw new ApiException('SaaS hostname FQDN missing', 422, 'saas_fqdn_missing');
         }
 
         return $fqdn;
@@ -293,7 +316,7 @@ class HostnameSyncService
             throw new ApiException(
                 'No business CNAME target available',
                 422,
-                'hostname_business_target_missing',
+                'saas_business_target_missing',
             );
         }
     }
@@ -323,7 +346,7 @@ class HostnameSyncService
      *   3. DCV 委派 CNAME(ssl.dcv_delegation_records[],永久有效)
      *   4. 所有权验证 TXT(_cf-custom-hostname.<host>)
      *
-     * hostname 状态进入终态(如 active)后,所有权 TXT 已完成验证使命,默认不再输出。
+     * saas 状态进入终态(如 active)后,所有权 TXT 已完成验证使命,默认不再输出。
      * 这样同步会自然驱动后续 cleanup 把那条 TXT 从 DNSPod 删除。
      *
      * @param bool $includeAll true 时强制包含所有权 TXT(不论状态),用于 hostname 删除前的全量收集

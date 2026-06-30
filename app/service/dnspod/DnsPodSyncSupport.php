@@ -10,16 +10,16 @@ use app\repository\ProviderRepository;
 /**
  * DNSPod 同步支撑服务
  *
- * 业务模块（hostname / edgeone / ...）在与 DNSPod 联动时反复需要：
+ * 业务模块（saas / edgeone / ...）在与 DNSPod 联动时反复需要：
  *   - 从某业务 provider 找出关联的 DNSPod provider id
  *   - 把 FQDN 按最长后缀匹配落到具体的 DNSPod zone（zone 不一定等于业务 zone）
  *   - 同步前清理与 CNAME 冲突的同名旧记录（A/AAAA/MX/NS 等）
  *
  * 本服务**属于 dnspod 模块**，被各业务模块单向依赖；不引用任何业务模块代码，
- * 避免出现 hostname → edgeone 这类横向交叉引用。
+ * 避免出现 saas → edgeone 这类横向交叉引用。
  *
  * 调用方按需在自己的 SyncService 构造函数注入本服务，并保留业务专属的
- * 记录收集 / 删除策略（如 hostname 的多记录拼装、edgeone 的 CNAME 模糊清理）。
+ * 记录收集 / 删除策略（如 saas 的多记录拼装、edgeone 的 CNAME 模糊清理）。
  */
 class DnsPodSyncSupport
 {
@@ -35,8 +35,8 @@ class DnsPodSyncSupport
      * 查找业务 provider 关联的 DNSPod provider id；未关联返回空串
      *
      * @param string $providerId    业务 provider id
-     * @param string $providerType  业务 provider 类型（如 'edgeone' / 'hostname'）
-     * @param string $label         展示用名称（如 'EdgeOne' / 'Hostname'），用于异常 message
+     * @param string $providerType  业务 provider 类型（如 'edgeone' / 'saas'）
+     * @param string $label         展示用名称（如 'EdgeOne' / 'SaaS'），用于异常 message
      */
     public function lookupDnspodProviderId(string $providerId, string $providerType, string $label): string
     {
@@ -71,7 +71,7 @@ class DnsPodSyncSupport
     /**
      * 按最长后缀匹配，从 DNSPod 域名列表中找到承接 fqdn 的 zone
      *
-     * @param string $errorCodePrefix 抛错时 error code 前缀（如 'edgeone' / 'hostname'）
+     * @param string $errorCodePrefix 抛错时 error code 前缀（如 'edgeone' / 'saas'）
      */
     public function resolveDnspodZone(string $dnspodProviderId, string $fqdn, string $errorCodePrefix): string
     {
@@ -195,7 +195,7 @@ class DnsPodSyncSupport
      * 删除 subdomain 下 name + type + line 匹配的所有记录（不按 value 精确匹配）
      *
      * 用于业务模块的批量清理场景（如 EdgeOne 删除域名时不知道当时的 CNAME 值，
-     * hostname active 后清理 ownership TXT）。
+     * saas active 后清理 ownership TXT）。
      *
      * @return array<int, array{type:string, name:string, record_id:string, status:string, error?:string}>
      */

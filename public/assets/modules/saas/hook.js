@@ -46,4 +46,3 @@ export default {
     return k ? 'blue' : 'default'
   },
 }
-

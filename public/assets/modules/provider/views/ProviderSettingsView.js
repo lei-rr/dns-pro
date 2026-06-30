@@ -59,7 +59,7 @@ export default {
     edit(provider) {
       this.editing = provider
       this.form = Object.fromEntries(
-        provider.editable_fields.map((field) => [field, this.editFieldValue(provider, field)]),
+        [['name', provider.name || ''], ...provider.editable_fields.map((field) => [field, this.editFieldValue(provider, field)])],
       )
     },
     openCreate() {
@@ -195,8 +195,11 @@ export default {
       if (!this.editing) return
       this.saving = true
       try {
-        const payload = Object.fromEntries(this.editing.editable_fields
-          .map((field) => [field, String(this.form[field] ?? '').trim()]))
+        const payload = {
+          name: String(this.form.name ?? '').trim(),
+          ...Object.fromEntries(this.editing.editable_fields
+            .map((field) => [field, String(this.form[field] ?? '').trim()])),
+        }
         if (!Object.keys(payload).length) {
           message.warning('请输入要更新的配置')
           return
@@ -214,7 +217,7 @@ export default {
     askDelete(provider) {
       const dependencies = this.providerReferenceDependencies(provider)
       const content = dependencies.length
-        ? Vue.h('div', { style: 'white-space: pre-wrap' }, `确认删除 ${provider.name}（${provider.id}）？删除后该服务商配置会被移除。\n\n依赖关系：\n${dependencies.map((item) => `- ${item.name}（${item.id}）`).join('\n')}\n\n请先修改或删除上述关联配置。`)
+        ? Vue.h('div', { style: 'white-space: pre-wrap' }, `确认删除 ${provider.name}（${provider.id}）？删除后该服务商配置会被移除。\n\n依赖关系：\n${dependencies.map((item) => `- ${this.dependencyLabel(item)}`).join('\n')}\n\n请先修改或删除上述关联配置。`)
         : `确认删除 ${provider.name}（${provider.id}）？删除后该服务商配置会被移除。`
       modal.confirm({
         title: '删除服务商配置',
@@ -234,6 +237,10 @@ export default {
         message.success('服务商配置已删除')
         await this.load()
       } catch (error) {
+        if (error.code === 'provider_in_use' && Array.isArray(error.details?.dependencies)) {
+          this.showProviderDependencies(provider, error.details.dependencies)
+          return
+        }
         message.error(errorMessage(error))
       } finally {
         this.providerOperation = null
@@ -243,22 +250,20 @@ export default {
       return this.providerOperation?.providerId === providerId && this.providerOperation?.action === action
     },
     providerReferenceDependencies(provider) {
-      if (provider.type === 'dnspod') {
-        return this.providers.filter((item) => 
-          (item.type === 'edgeone' && item.dnspod_provider === provider.id) ||
-          (item.type === 'hostname' && item.dnspod_provider === provider.id)
-        )
-      }
-
-      if (provider.type === 'cloudflare') {
-        return this.providers.filter((item) =>
-          (item.type === 'hostname' && item.cloudflare_provider === provider.id) ||
-          (item.type === 'hostname' && item.cloudflare_dns_provider === provider.id) ||
-          (item.type === 'cloudflared' && item.cloudflare_provider === provider.id)
-        )
-      }
-
-      return []
+      return Array.isArray(provider.dependencies) ? provider.dependencies : []
+    },
+    dependencyLabel(item) {
+      const reason = String(item?.reason || '').trim()
+      const name = String(item?.name || '').trim()
+      const id = String(item?.id || '').trim()
+      return `${reason || '引用'}：${name || '-'}${id ? `（${id}）` : ''}`
+    },
+    showProviderDependencies(provider, dependencies) {
+      modal.warning({
+        title: '服务商仍在使用中',
+        content: Vue.h('div', { style: 'white-space: pre-wrap' }, `无法删除 ${provider.name}（${provider.id}）。\n\n依赖关系：\n${dependencies.map((item) => `- ${this.dependencyLabel(item)}`).join('\n')}`),
+        okText: '知道了',
+      })
     },
     fieldLabel(field) {
       return this.providerDefinitions?.labels?.[field] || field
@@ -294,11 +299,51 @@ export default {
     isSecretField(field) {
       return field.includes('key') || field.includes('token')
     },
-    configTags(provider) {
-      return provider.editable_fields.map((field) => ({
-        label: this.fieldLabel(field),
-        value: provider.fields[field] || '未配置',
-      }))
+    linkedProviderLabel(providerId) {
+      const linked = this.providers.find((provider) => provider.id === providerId)
+      if (!linked) return providerId || '未配置'
+      return `${linked.name}（${linked.id}）`
+    },
+    configItems(provider) {
+      if (provider.type === 'dnspod' || provider.type === 'cloudflare') {
+        return [{
+          key: 'api',
+          value: provider.configured ? '已配置' : '未配置',
+          color: provider.configured ? 'green' : 'default',
+        }]
+      }
+
+      const items = []
+
+      if (provider.type === 'edgeone' && provider.dnspod_provider) {
+        items.push({
+          key: 'edgeone-dnspod',
+          value: this.linkedProviderLabel(provider.dnspod_provider),
+          color: 'blue',
+        })
+      }
+
+      if (provider.type === 'saas' && provider.cloudflare_provider) {
+        items.push({
+          key: 'saas-cloudflare',
+          value: this.linkedProviderLabel(provider.cloudflare_provider),
+          color: 'orange',
+        })
+      }
+
+      if (provider.type === 'cloudflared' && provider.cloudflare_provider) {
+        items.push({
+          key: 'cloudflared-cloudflare',
+          value: this.linkedProviderLabel(provider.cloudflare_provider),
+          color: 'orange',
+        })
+      }
+
+      return items.length ? items : [{
+        key: 'api',
+        value: provider.configured ? '已配置' : '未配置',
+        color: provider.configured ? 'green' : 'default',
+      }]
     },
   },
   computed: {
@@ -332,8 +377,7 @@ export default {
         :columns="[
           { title: '排序', key: 'sort', width: 70 },
           { title: '服务商', key: 'name', width: 180 },
-          { title: '状态', key: 'status', width: 120 },
-          { title: '配置', key: 'fields', width: 300 },
+          { title: 'API 配置', key: 'fields', width: 360 },
           { title: '操作', key: 'actions', width: 270, align: 'right' },
         ]"
         size="middle"
@@ -348,12 +392,11 @@ export default {
           <template v-else-if="column.key === 'name'">
             <a-space><a-tag>{{ record.type }}</a-tag><span>{{ record.name }}</span></a-space>
           </template>
-          <template v-else-if="column.key === 'status'">
-            <a-tag :color="record.configured ? 'green' : 'default'">{{ record.configured ? '已配置' : '未配置' }}</a-tag>
-          </template>
           <template v-else-if="column.key === 'fields'">
-            <a-space wrap>
-              <a-tag v-for="item in configTags(record)" :key="item.label">{{ item.label }}: {{ item.value }}</a-tag>
+            <a-space direction="vertical" size="small" style="width: 100%">
+              <div v-for="item in configItems(record)" :key="item.key" style="display: flex; align-items: flex-start; justify-content: flex-start; gap: 8px; flex-wrap: wrap">
+                <a-tag :color="item.color" style="margin-inline-end: 0">{{ item.value }}</a-tag>
+              </div>
             </a-space>
           </template>
           <template v-else-if="column.key === 'actions'">
@@ -367,6 +410,12 @@ export default {
       <a-modal :open="!!editing" :title="editing ? '更新 ' + editing.name + ' 服务商配置' : ''" :confirm-loading="saving" ok-text="保存" cancel-text="取消" @ok="save" @cancel="editing = null" @update:open="open => { if (!open) editing = null }">
         <a-alert type="info" show-icon style="margin-bottom: 16px" message="留空的字段不会覆盖现有配置；如需清空请使用清除。" />
         <a-form v-if="editing" layout="vertical">
+          <a-form-item label="配置标识">
+            <a-input :value="editing.id" disabled />
+          </a-form-item>
+          <a-form-item label="显示名称">
+            <a-input v-model:value="form.name" placeholder="留空使用默认名称" />
+          </a-form-item>
           <a-form-item v-for="field in editing.editable_fields" :key="field" :label="fieldLabel(field)">
             <a-select v-if="isProviderSelectField(field)" v-model:value="form[field]" :placeholder="selectFieldPlaceholder(field)">
               <a-select-option v-for="provider in selectFieldProviders(field)" :key="provider.id" :value="provider.id">{{ provider.name }}（{{ provider.id }}）</a-select-option>

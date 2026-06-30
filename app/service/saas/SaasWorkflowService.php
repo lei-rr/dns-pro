@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace app\service\hostname;
+namespace app\service\saas;
 
 use app\exception\ApiException;
 use app\support\SideEffectResult;
@@ -13,12 +13,12 @@ use app\support\SideEffectResult;
  * 把 controller 中的业务副作用编排（DNSPod 预检 / 同步 / 清理 / 状态跃迁判断）
  * 下沉到 service 层，controller 只保留参数解析与响应包装。
  */
-class HostnameWorkflowService
+class SaasWorkflowService
 {
     public function __construct(
-        private readonly HostnameService $hostnames,
-        private readonly HostnameSyncService $sync,
-        private readonly HostnameCloudflareDnsSyncService $cloudflareSync,
+        private readonly SaasService $hostnames,
+        private readonly SaasSyncService $sync,
+        private readonly SaasCloudflareDnsSyncService $cloudflareSync,
     ) {
     }
 
@@ -43,8 +43,9 @@ class HostnameWorkflowService
             unset($result['items'][$index]['previous_status']);
 
             if ($transitioned && $fqdn !== '') {
+                $driver = $this->syncDriverForHostname($providerId, $zoneName, $fqdn);
                 $cleanup[$fqdn] = $this->safeSync(
-                    fn () => $this->sync->cleanupStaleRecords($providerId, $zoneName, $fqdn),
+                    fn () => $driver->cleanupStaleRecords($providerId, $zoneName, $fqdn),
                 );
             }
         }
@@ -127,6 +128,45 @@ class HostnameWorkflowService
         return $result;
     }
 
+    public function syncHostname(string $providerId, string $zoneName, string $hostnameFqdn): array
+    {
+        $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
+        $sync = $this->safeSync(
+            fn () => $driver->sync($providerId, $zoneName, $hostnameFqdn),
+        );
+
+        return [
+            'hostname' => $hostnameFqdn,
+        ] + SideEffectResult::dns([
+            'sync' => $this->normalizeSyncOperation($sync, '已执行 DNS 重同步'),
+        ]);
+    }
+
+    public function checkHostnameSync(string $providerId, string $zoneName, string $hostnameFqdn): array
+    {
+        $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
+        $check = $this->safeSync(
+            fn () => $driver->check($providerId, $zoneName, $hostnameFqdn),
+        );
+
+        $checked = (bool) array_reduce(
+            $check['records'] ?? [],
+            static fn (bool $carry, array $record) => $carry && (bool) ($record['synced'] ?? false),
+            true,
+        );
+
+        return [
+            'hostname' => $hostnameFqdn,
+            'checked' => $checked,
+        ] + SideEffectResult::dns([
+            'sync' => SideEffectResult::operation(
+                $checked ? 'completed' : 'skipped',
+                $checked ? 'DNS 同步状态正常' : '存在未同步记录',
+                $check,
+            ),
+        ]);
+    }
+
     public function deleteHostname(string $providerId, string $zoneName, string $hostnameFqdn, bool $autoCleanup = true): array
     {
         $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
@@ -145,7 +185,7 @@ class HostnameWorkflowService
         return $result;
     }
 
-    private function syncDriverForInput(string $providerId, array $data): HostnameSyncService|HostnameCloudflareDnsSyncService
+    private function syncDriverForInput(string $providerId, array $data): SaasSyncService|SaasCloudflareDnsSyncService
     {
         $target = trim((string) ($data['sync_target'] ?? ''));
         if ($target === '') {
@@ -155,18 +195,15 @@ class HostnameWorkflowService
         return $target === 'cloudflare_dns' ? $this->cloudflareSync : $this->sync;
     }
 
-    private function syncDriverForHostname(string $providerId, string $zoneName, string $hostnameFqdn): HostnameSyncService|HostnameCloudflareDnsSyncService
+    private function syncDriverForHostname(string $providerId, string $zoneName, string $hostnameFqdn): SaasSyncService|SaasCloudflareDnsSyncService
     {
-        $config = $this->hostnames->syncConfig($providerId, $hostnameFqdn, $zoneName);
+        $config = $this->hostnames->effectiveSyncConfig($providerId, $hostnameFqdn, $zoneName);
         $target = trim((string) ($config['sync_target'] ?? ''));
-        if ($target === '') {
-            $target = $this->hostnames->defaultSyncTarget($providerId);
-        }
 
         return $target === 'cloudflare_dns' ? $this->cloudflareSync : $this->sync;
     }
 
-    private function syncDriverForResult(string $providerId, string $zoneName, string $hostnameFqdn): HostnameSyncService|HostnameCloudflareDnsSyncService
+    private function syncDriverForResult(string $providerId, string $zoneName, string $hostnameFqdn): SaasSyncService|SaasCloudflareDnsSyncService
     {
         return $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
     }

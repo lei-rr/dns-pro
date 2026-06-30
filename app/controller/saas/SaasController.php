@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace app\controller\hostname;
+namespace app\controller\saas;
 
 use app\controller\concerns\ResolvesQueryParams;
 use app\controller\concerns\ValidatesInput;
-use app\service\hostname\HostnameService;
-use app\service\hostname\HostnameWorkflowService;
+use app\service\saas\SaasService;
+use app\service\saas\SaasWorkflowService;
 use app\support\ApiResponse;
-use app\validate\HostnameValidate;
+use app\validate\SaasValidate;
 use think\Response;
 
 /**
@@ -22,20 +22,20 @@ use think\Response;
  *   - POST ?auto_sync=1:创建后自动同步到 DNSPod(需 dnspod_provider 已配置)
  *   - DELETE ?auto_cleanup=0:删除时跳过 DNSPod 记录清理(默认会清)
  */
-class HostnameController
+class SaasController
 {
     use ResolvesQueryParams;
     use ValidatesInput;
 
     public function __construct(
-        private readonly HostnameService $hostnames,
-        private readonly HostnameWorkflowService $workflow,
+        private readonly SaasService $hostnames,
+        private readonly SaasWorkflowService $workflow,
     ) {
     }
 
     public function zones(string $providerId): Response
     {
-        $query = $this->queryInput(HostnameValidate::class, 'listZones');
+        $query = $this->queryInput(SaasValidate::class, 'listZones');
 
         return ApiResponse::data($this->hostnames->zones(
             $providerId,
@@ -48,7 +48,7 @@ class HostnameController
 
     public function hostnames(string $providerId, string $zoneName): Response
     {
-        $query = $this->queryInput(HostnameValidate::class, 'listHostnames');
+        $query = $this->queryInput(SaasValidate::class, 'listHostnames');
 
         return ApiResponse::data($this->workflow->hostnames(
             $providerId,
@@ -61,7 +61,7 @@ class HostnameController
 
     public function store(string $providerId, string $zoneName): Response
     {
-        $data = $this->postInput(HostnameValidate::class, 'store');
+        $data = $this->postInput(SaasValidate::class, 'store');
 
         return ApiResponse::data($this->workflow->createHostname(
             $providerId,
@@ -73,7 +73,7 @@ class HostnameController
 
     public function show(string $providerId, string $zoneName, string $hostnameFqdn): Response
     {
-        $query = $this->queryInput(HostnameValidate::class, 'show');
+        $query = $this->queryInput(SaasValidate::class, 'show');
 
         return ApiResponse::data($this->hostnames->showHostname(
             $providerId,
@@ -85,7 +85,7 @@ class HostnameController
 
     public function update(string $providerId, string $zoneName, string $hostnameFqdn): Response
     {
-        $data = $this->putInput(HostnameValidate::class, 'update');
+        $data = $this->putInput(SaasValidate::class, 'update');
 
         return ApiResponse::data($this->workflow->updateHostname(
             $providerId,
@@ -105,6 +105,24 @@ class HostnameController
         ));
     }
 
+    public function sync(string $providerId, string $zoneName, string $hostnameFqdn): Response
+    {
+        return ApiResponse::data($this->workflow->syncHostname(
+            $providerId,
+            $this->zoneName($zoneName),
+            $this->hostnameFqdn($hostnameFqdn),
+        ));
+    }
+
+    public function checkSync(string $providerId, string $zoneName, string $hostnameFqdn): Response
+    {
+        return ApiResponse::data($this->workflow->checkHostnameSync(
+            $providerId,
+            $this->zoneName($zoneName),
+            $this->hostnameFqdn($hostnameFqdn),
+        ));
+    }
+
     public function delete(string $providerId, string $zoneName, string $hostnameFqdn): Response
     {
         return ApiResponse::data($this->workflow->deleteHostname(
@@ -117,7 +135,7 @@ class HostnameController
 
     public function fallbackOriginShow(string $providerId, string $zoneName): Response
     {
-        $query = $this->queryInput(HostnameValidate::class, 'show');
+        $query = $this->queryInput(SaasValidate::class, 'show');
 
         return ApiResponse::data($this->hostnames->fallbackOriginInfo(
             $providerId,
@@ -128,7 +146,7 @@ class HostnameController
 
     public function fallbackOriginUpdate(string $providerId, string $zoneName): Response
     {
-        $data = $this->putInput(HostnameValidate::class, 'fallbackOrigin');
+        $data = $this->putInput(SaasValidate::class, 'fallbackOrigin');
 
         return ApiResponse::data($this->hostnames->setFallbackOrigin(
             $providerId,

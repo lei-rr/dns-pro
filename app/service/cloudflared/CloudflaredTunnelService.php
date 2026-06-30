@@ -18,7 +18,7 @@ use app\service\concerns\ProviderServiceConcern;
  * 模块边界：
  *   - 依赖 cloudflare 模块的 ApiClient（单向）
  *   - 通过 cloudflared provider 的 cloudflare_provider 字段找到关联的 CF 凭据
- *   - 不依赖 dnspod / edgeone / hostname 模块
+ *   - 不依赖 dnspod / edgeone / saas 模块
  */
 class CloudflaredTunnelService
 {

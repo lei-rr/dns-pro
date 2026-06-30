@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace app\service\hostname;
+namespace app\service\saas;
 
 use app\exception\ApiException;
 use app\repository\PreferredDomainRepository;
@@ -10,7 +10,7 @@ use app\repository\PreferredDomainRepository;
 /**
  * 优选域名服务（JSON-backed）
  *
- * 单一数据源：data/hostname/preferred-domains.json，结构 {"items": ["domain", ...]}。
+ * 单一数据源：data/saas/preferred-domains.json，结构 {"items": ["domain", ...]}。
  * 数组顺序即显示顺序；domain 全局唯一并作为对外标识。
  */
 class PreferredDomainService
@@ -115,7 +115,7 @@ class PreferredDomainService
     }
 
     /**
-     * 校验 domain 是否在当前列表中（HostnameService 创建/更新时用作白名单）
+     * 校验 domain 是否在当前列表中（SaasService 创建/更新时用作白名单）
      */
     public function isAllowed(string $domain): bool
     {

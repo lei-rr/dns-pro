@@ -34,9 +34,9 @@ return [
                 'dnspod_provider' => '关联 DNSPod API',
             ],
         ],
-        'hostname' => [
-            'type' => 'hostname',
-            'name' => 'Hostname',
+        'saas' => [
+            'type' => 'saas',
+            'name' => 'SaaS',
             'fields' => ['cloudflare_provider'],
             'required' => ['cloudflare_provider'],
             'secret_fields' => [],

@@ -5,7 +5,7 @@ const providerBrands = {
   edgeone: { color: 'blue', avatarColor: '#1677ff' },
   cloudflare: { color: 'orange', avatarColor: '#fa8c16' },
   cloudflared: { color: 'orange', avatarColor: '#fa8c16' },
-  hostname: { color: 'orange', avatarColor: '#fa8c16' },
+  saas: { color: 'orange', avatarColor: '#fa8c16' },
 }
 
 export function providerBrand(type) {

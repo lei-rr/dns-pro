@@ -1,7 +1,7 @@
-import { filterOption } from '../utils/hostname.js'
+import { filterOption } from '../utils/saas.js'
 
 export default {
-  name: 'HostnameCreateModal',
+  name: 'SaasCreateModal',
   props: {
     open: { type: Boolean, default: false },
     title: { type: String, default: '新增自定义主机名' },

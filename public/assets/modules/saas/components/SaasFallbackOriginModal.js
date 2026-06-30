@@ -1,5 +1,5 @@
-import { hostnameApi } from '../utils/api.js'
-import { statusColor, statusLabel } from '../utils/hostname.js'
+import { saasApi } from '../utils/api.js'
+import { statusColor, statusLabel } from '../utils/saas.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
 import { errorMessage } from '../../../shared/utils/errors.js'
 
@@ -28,7 +28,7 @@ const FALLBACK_STATUS_COLORS = {
 }
 
 export default {
-  name: 'HostnameFallbackOriginModal',
+  name: 'SaasFallbackOriginModal',
   props: {
     open: { type: Boolean, default: false },
     provider: { type: String, required: true },
@@ -99,7 +99,7 @@ export default {
     async load() {
       this.loading = true
       try {
-        const response = await hostnameApi.fallbackOrigin(this.provider, this.zoneName, { refresh: true })
+        const response = await saasApi.fallbackOrigin(this.provider, this.zoneName, { refresh: true })
         const data = response.data || {}
         const origin = data.origin || ''
         this.currentOrigin = origin
@@ -121,7 +121,7 @@ export default {
       }
       this.saving = true
       try {
-        const response = await hostnameApi.setFallbackOrigin(this.provider, this.zoneName, this.trimmedOrigin)
+        const response = await saasApi.setFallbackOrigin(this.provider, this.zoneName, this.trimmedOrigin)
         const data = response.data || {}
         this.currentOrigin = data.origin || this.trimmedOrigin
         this.origin = this.currentOrigin
@@ -146,7 +146,7 @@ export default {
     async doDelete() {
       this.deleting = true
       try {
-        await hostnameApi.deleteFallbackOrigin(this.provider, this.zoneName)
+        await saasApi.deleteFallbackOrigin(this.provider, this.zoneName)
         this.currentOrigin = ''
         this.origin = ''
         this.enabled = false

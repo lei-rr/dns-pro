@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace app\service\hostname;
+namespace app\service\saas;
 
 use app\exception\ApiException;
 use app\repository\ProviderRepository;
 use app\service\cloudflare\CloudflareDnsRecordGateway;
 use app\service\cloudflare\CloudflareZoneGateway;
 
-class HostnameCloudflareDnsSyncService
+class SaasCloudflareDnsSyncService
 {
     private const PURPOSE_LABELS = [
         'origin_cname' => '业务接入',
@@ -17,14 +17,14 @@ class HostnameCloudflareDnsSyncService
         'dcv_delegation' => 'DCV 委派',
     ];
 
-    private const PROVIDER_TYPE = 'hostname';
-    private const PROVIDER_LABEL = 'Hostname';
+    private const PROVIDER_TYPE = 'saas';
+    private const PROVIDER_LABEL = 'SaaS';
 
     public function __construct(
         private readonly ProviderRepository $providers,
         private readonly CloudflareZoneGateway $zones,
         private readonly CloudflareDnsRecordGateway $records,
-        private readonly HostnameService $hostnames,
+        private readonly SaasService $hostnames,
     ) {
     }
 
@@ -53,13 +53,36 @@ class HostnameCloudflareDnsSyncService
             throw new ApiException(
                 'No records available for sync',
                 422,
-                'hostname_no_sync_records',
+                'saas_no_sync_records',
                 ['provider_id' => $providerId, 'hostname_fqdn' => $hostnameFqdn],
             );
         }
 
         $results = array_map(
             fn (array $record) => $this->withPurpose($record, $this->syncRecord($cloudflareProviderId, $zoneId, $record)),
+            $records,
+        );
+
+        return [
+            'hostname_fqdn' => $fqdn,
+            'hostname' => $fqdn,
+            'cloudflare_provider_id' => $cloudflareProviderId,
+            'cloudflare_zone' => $zoneName,
+            'records' => $results,
+        ];
+    }
+
+    public function check(string $providerId, string $cfZoneName, string $hostnameFqdn): array
+    {
+        [$cloudflareProviderId, $zoneId, $zoneName] = $this->resolveTarget($providerId, $hostnameFqdn);
+        $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameFqdn);
+        $fqdn = $this->requireFqdn($hostname);
+        $effectiveOrigin = $this->resolveEffectiveOrigin($providerId, $cfZoneName, $hostname);
+        $this->requireBusinessTarget($hostname, $effectiveOrigin);
+        $records = $this->collectRecords($hostname, $effectiveOrigin, $zoneName);
+
+        $results = array_map(
+            fn (array $record) => $this->withPurpose($record, $this->checkRecord($cloudflareProviderId, $zoneId, $record)),
             $records,
         );
 
@@ -125,7 +148,7 @@ class HostnameCloudflareDnsSyncService
     {
         $hostname = $this->hostnames->showHostname($providerId, $cfZoneName, $hostnameFqdn, true);
         if (!$this->isHostnameActive($hostname)) {
-            return ['cleaned' => 0, 'reason' => 'hostname_not_active'];
+            return ['cleaned' => 0, 'reason' => 'saas_not_active'];
         }
 
         $fqdn = (string) ($hostname['hostname'] ?? '');
@@ -183,7 +206,7 @@ class HostnameCloudflareDnsSyncService
             $zoneName = strtolower(trim((string) ($sync['sync_zone'] ?? '')));
         }
         if ($zoneName === '') {
-            throw new ApiException('Cloudflare DNS sync zone is required', 422, 'hostname_cloudflare_sync_zone_missing', [
+            throw new ApiException('Cloudflare DNS sync zone is required', 422, 'saas_cloudflare_sync_zone_missing', [
                 'provider_id' => $providerId,
                 'hostname_fqdn' => $hostnameFqdn,
             ]);
@@ -197,15 +220,15 @@ class HostnameCloudflareDnsSyncService
         $provider = $this->providers->requireType(
             $providerId,
             self::PROVIDER_TYPE,
-            'Hostname provider not found',
-            'hostname_provider_not_found',
+            'SaaS provider not found',
+            'saas_provider_not_found',
         );
         $id = trim((string) ($provider['cloudflare_dns_provider'] ?? ''));
         if ($id === '') {
             $id = trim((string) ($provider['cloudflare_provider'] ?? ''));
         }
         if ($id === '') {
-            throw new ApiException('Hostname provider is not linked to a Cloudflare DNS provider', 422, 'hostname_cloudflare_dns_provider_missing', [
+            throw new ApiException('SaaS provider is not linked to a Cloudflare DNS provider', 422, 'saas_cloudflare_dns_provider_missing', [
                 'provider_id' => $providerId,
             ]);
         }
@@ -217,7 +240,7 @@ class HostnameCloudflareDnsSyncService
     {
         $fqdn = trim((string) ($hostname['hostname'] ?? ''));
         if ($fqdn === '') {
-            throw new ApiException('Hostname FQDN missing', 422, 'hostname_fqdn_missing');
+            throw new ApiException('SaaS hostname FQDN missing', 422, 'saas_fqdn_missing');
         }
 
         return $fqdn;
@@ -243,7 +266,7 @@ class HostnameCloudflareDnsSyncService
             throw new ApiException(
                 'No business CNAME target available',
                 422,
-                'hostname_business_target_missing',
+                'saas_business_target_missing',
             );
         }
     }
@@ -388,6 +411,32 @@ class HostnameCloudflareDnsSyncService
         }
 
         return $base + ['status' => 'not_found', 'record_id' => ''];
+    }
+
+    private function checkRecord(string $providerId, string $zoneId, array $record): array
+    {
+        $base = [
+            'type' => $record['type'],
+            'name' => $record['name'],
+            'value' => $record['value'],
+        ];
+        $expectedValue = rtrim((string) ($record['value'] ?? ''), '.');
+        $expectedComment = (string) ($record['comment'] ?? '');
+
+        foreach ($this->exactMatches($providerId, $zoneId, (string) $record['name'], (string) $record['type']) as $match) {
+            if (rtrim((string) ($match['content'] ?? ''), '.') !== $expectedValue) {
+                continue;
+            }
+
+            $comment = (string) ($match['comment'] ?? '');
+            if ($comment !== '' && $comment !== $expectedComment) {
+                continue;
+            }
+
+            return $base + ['synced' => true, 'record_id' => (string) ($match['id'] ?? '')];
+        }
+
+        return $base + ['synced' => false, 'record_id' => ''];
     }
 
     private function exactMatches(string $providerId, string $zoneId, string $fqdn, string $type): array

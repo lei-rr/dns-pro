@@ -13,7 +13,7 @@ use app\service\concerns\ProviderServiceConcern;
  * Cloudflare for SaaS 自定义主机名服务
  *
  * 封装所有 /zones/:zoneId/custom_hostnames/* 的 API 调用与缓存。
- * 上层（hostname 模块）只通过本服务访问 Cloudflare，不直接拼路径。
+ * 上层（saas 模块）只通过本服务访问 Cloudflare，不直接拼路径。
  */
 class CloudflareCustomHostnameGateway
 {
@@ -103,7 +103,7 @@ class CloudflareCustomHostnameGateway
      * 把 hostname FQDN 解析为 Cloudflare 内部 UUID
      *
      * 走 list 缓存(默认 3 天 TTL),找不到时强制 refresh 一次再找(容忍 CF 端外部新建)。
-     * 仍找不到则抛 404,由 ExceptionHandle 统一返回 hostname_not_found。
+     * 仍找不到则抛 404,由 ExceptionHandle 统一返回 saas_hostname_not_found。
      *
      * 缓存可靠性:
      *   - 自建/改/删触发 invalidate,本地操作命中率 100%
@@ -132,7 +132,7 @@ class CloudflareCustomHostnameGateway
         throw new \app\exception\ApiException(
             'Hostname not found',
             404,
-            'hostname_not_found',
+            'saas_hostname_not_found',
             ['hostname' => $hostnameFqdn],
         );
     }
@@ -183,7 +183,7 @@ class CloudflareCustomHostnameGateway
         }
 
         // 注意：Cloudflare custom_metadata 仅企业版可用，普通账号下发会被 API 拒绝。
-        // hostname 模块的本地属性（如 preferred_domain）由 hostname_preferences 表存储，
+        // saas 模块的本地属性（如 preferred_domain）由 saas preferences 表存储，
         // 不通过 Cloudflare API 透传。如果未来升级到企业版，再恢复下发逻辑。
 
         $response = $this->client->post(
@@ -363,7 +363,7 @@ class CloudflareCustomHostnameGateway
     }
 
     /**
-     * 让上层显式失效缓存（hostname 模块在跨服务操作后需要主动清）
+     * 让上层显式失效缓存（saas 模块在跨服务操作后需要主动清）
      */
     public function invalidate(string $cloudflareProviderId, string $zoneId): void
     {

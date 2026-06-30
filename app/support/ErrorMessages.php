@@ -39,7 +39,7 @@ class ErrorMessages
         'provider_type_immutable'             => '服务商类型不能修改',
         'provider_order_duplicated'           => '排序列表中存在重复的服务商',
         'provider_order_mismatch'             => '排序列表与现有服务商不匹配',
-        'provider_in_use'                     => '该服务商正在被其他服务商引用,无法删除',
+        'provider_in_use'                     => '该服务商仍在被使用,无法删除',
 
         // Cloudflare
         'cloudflare_provider_not_found'       => 'Cloudflare 服务商不存在',
@@ -78,17 +78,19 @@ class ErrorMessages
         'edgeone_acceleration_domain_status_update_failed' => 'EdgeOne 加速域名状态修改失败',
         'edgeone_certificate_update_failed'                => 'EdgeOne 证书更新失败',
 
-        // Hostname
-        'hostname_provider_not_found'              => 'Hostname 服务商不存在',
-        'hostname_cloudflare_provider_missing'     => 'Hostname 未关联 Cloudflare 服务商',
-        'hostname_cloudflare_dns_provider_missing' => 'Hostname 未关联 Cloudflare DNS 服务商',
-        'hostname_cloudflare_sync_zone_missing'    => '未选择 Cloudflare DNS 同步域名',
-        'hostname_business_target_missing'         => '缺少业务主 CNAME 的目标域名',
-        'hostname_dnspod_provider_missing'         => 'Hostname 未关联 DNSPod 服务商',
-        'hostname_dnspod_zone_not_found'           => 'DNSPod 中找不到与该主机名匹配的域名',
-        'hostname_fqdn_empty'                      => '主机名 FQDN 为空',
-        'hostname_fqdn_missing'                    => '主机名 FQDN 缺失',
-        'hostname_no_sync_records'                 => '该主机名当前没有可同步的 DNS 记录',
+        // SaaS
+        'saas_provider_not_found'                  => 'SaaS 服务商不存在',
+        'saas_cloudflare_provider_missing'         => 'SaaS 未关联 Cloudflare 服务商',
+        'saas_cloudflare_dns_provider_missing'     => 'SaaS 未关联 Cloudflare DNS 服务商',
+        'saas_cloudflare_sync_zone_missing'        => '未选择 Cloudflare DNS 同步域名',
+        'saas_business_target_missing'             => '缺少业务主 CNAME 的目标域名',
+        'saas_dnspod_provider_missing'             => 'SaaS 未关联 DNSPod 服务商',
+        'saas_dnspod_zone_not_found'               => 'DNSPod 中找不到与该主机名匹配的域名',
+        'saas_fqdn_empty'                          => '主机名 FQDN 为空',
+        'saas_fqdn_missing'                        => '主机名 FQDN 缺失',
+        'saas_no_sync_records'                     => '该主机名当前没有可同步的 DNS 记录',
+        'saas_not_active'                          => '该主机名当前未激活',
+        'saas_hostname_not_found'                  => 'SaaS 主机名不存在',
         'cloudflare_dns_record_conflict'          => 'Cloudflare DNS 中已存在冲突记录',
 
         // Preferred Domain

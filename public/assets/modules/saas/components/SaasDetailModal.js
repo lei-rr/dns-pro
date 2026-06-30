@@ -1,7 +1,7 @@
-import { statusColor, statusLabel, minTlsLabel, formatDate } from '../utils/hostname.js'
+import { statusColor, statusLabel, minTlsLabel, formatDate } from '../utils/saas.js'
 
 export default {
-  name: 'HostnameDetailModal',
+  name: 'SaasDetailModal',
   props: {
     open: { type: Boolean, default: false },
     hostname: { type: Object, default: null },
@@ -10,6 +10,16 @@ export default {
   },
   emits: ['update:open', 'refresh', 'edit'],
   computed: {
+    syncTargetLabel() {
+      const target = this.hostname?.effective_sync_target || this.hostname?.sync_target
+      if (target === 'dnspod') return 'DNSPod'
+      if (target === 'cloudflare_dns') return 'Cloudflare DNS'
+      return '未配置'
+    },
+    syncConfigModeLabel() {
+      if (!this.hostname?.effective_sync_target) return '未配置'
+      return this.hostname?.sync_config_explicit ? '显式配置' : '兼容默认'
+    },
     // 是否仍需要提示用户完成 DCV 验证（active/deleted 等终态不再提示）
     needsDcvHelp() {
       const status = this.hostname?.ssl?.status
@@ -97,6 +107,11 @@ export default {
           <a-descriptions-item label="主机名状态">
             <a-tag :color="statusColor(hostname.status)">{{ statusLabel(hostname.status) }}</a-tag>
           </a-descriptions-item>
+          <a-descriptions-item label="同步模式">{{ syncConfigModeLabel }}</a-descriptions-item>
+          <a-descriptions-item label="同步目标">{{ syncTargetLabel }}</a-descriptions-item>
+          <a-descriptions-item label="同步服务商">{{ hostname.effective_sync_provider_id || hostname.sync_provider_id || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="同步域名">{{ hostname.effective_sync_zone || hostname.sync_zone || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="自动优选">{{ hostname.auto_preferred ? '开启' : '关闭' }}</a-descriptions-item>
           <a-descriptions-item label="回源服务器">{{ hostname.custom_origin_server || '默认源服务器' }}</a-descriptions-item>
           <a-descriptions-item label="最低 TLS 版本">{{ minTlsLabel(hostname.ssl?.settings?.min_tls_version) }}</a-descriptions-item>
           <a-descriptions-item label="DCV 验证方式">{{ hostname.ssl?.method || 'txt' }}</a-descriptions-item>

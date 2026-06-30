@@ -29,6 +29,7 @@ export default {
       showForm: false,
       keyword: '',
       appliedKeyword: '',
+      selectedType: '',
       loading: true,
       saving: false,
       deleting: false,
@@ -76,6 +77,10 @@ export default {
         this.applyKeyword()
       }
     },
+    selectedType() {
+      this.recordMeta = { ...this.recordMeta, page: 1, total: 0 }
+      this.load()
+    },
   },
   methods: {
     routeBase() { return providerPath(this.provider) },
@@ -86,6 +91,7 @@ export default {
       this.recordMeta = { page: 1, per_page: 20, total: 0 }
       this.keyword = ''
       this.appliedKeyword = ''
+      this.selectedType = ''
       this.currentDomainName = ''
       this.load()
     },
@@ -120,6 +126,8 @@ export default {
           page: this.recordMeta.page,
           per_page: this.recordMeta.per_page,
           keyword: this.appliedKeyword,
+          record_type: this.selectedType,
+          type: this.selectedType,
           ...options,
         })
         if (requestToken !== this.loadRequestToken) return
@@ -323,6 +331,7 @@ export default {
         </div>
         <div class="page-actions">
           <a-input-search v-model:value="keyword" placeholder="搜索记录" allow-clear @search="applyKeyword" />
+          <a-select v-model:value="selectedType" :options="[{ label: '全部类型', value: '' }, ...typeOptions]" style="width: 140px" />
           <a-button v-if="capabilities.importRecords" :disabled="saving || deleting" @click="importRecords">导入</a-button>
           <a-button v-if="capabilities.exportRecords" :disabled="!records.length" @click="exportRecords">导出</a-button>
           <a-button :loading="loading" :disabled="saving || deleting" @click="handleRefresh">刷新</a-button>

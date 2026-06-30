@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace app\service\hostname;
+namespace app\service\saas;
 
 use app\exception\ApiException;
 use app\repository\ProviderRepository;
@@ -22,14 +22,14 @@ use app\service\cloudflare\CloudflareZoneGateway;
  * 注:Cloudflare custom_metadata 仅企业版可用,本服务把 preferred_domain / sync_target / sync_zone 存到本地
  * hostname_preferences 表,对前端透明地"挂"在响应的 custom_metadata.preferred_domain 字段上。
  */
-class HostnameService
+class SaasService
 {
     public function __construct(
         private readonly ProviderRepository $providers,
         private readonly CloudflareZoneGateway $cloudflareZones,
         private readonly CloudflareCustomHostnameGateway $cloudflareHostnames,
         private readonly PreferredDomainService $preferredDomains,
-        private readonly HostnamePreferenceService $preferences,
+        private readonly SaasPreferenceService $preferences,
     ) {
     }
 
@@ -66,11 +66,14 @@ class HostnameService
         $result = $this->cloudflareHostnames->list($cfId, $zoneId, $page, $perPage, $refresh);
         $preferenceMap = $this->preferences->listByProvider($cfId);
         $result['items'] = array_map(
-            fn (array $h) => $this->mergePreference(
-                $refresh
-                    ? $h + ['previous_status' => $previousStatusMap[(string) ($h['id'] ?? '')] ?? '']
-                    : $h,
-                $preferenceMap[(string) ($h['id'] ?? '')] ?? null,
+            fn (array $h) => $this->applyEffectiveSyncConfig(
+                $providerId,
+                $this->mergePreference(
+                    $refresh
+                        ? $h + ['previous_status' => $previousStatusMap[(string) ($h['id'] ?? '')] ?? '']
+                        : $h,
+                    $preferenceMap[(string) ($h['id'] ?? '')] ?? null,
+                ),
             ),
             $result['items'] ?? [],
         );
@@ -88,7 +91,7 @@ class HostnameService
 
         $hostname = $this->cloudflareHostnames->show($cfId, $zoneId, $hostnameId, $refresh);
 
-        return $this->enrichDetailedHostname($hostname, $cfId, $zoneId, $hostnameId);
+        return $this->enrichDetailedHostname($providerId, $hostname, $cfId, $zoneId, $hostnameId);
     }
 
     /**
@@ -111,7 +114,7 @@ class HostnameService
         $hostname = $this->cloudflareHostnames->show($cfId, $zoneId, $hostnameId, true);
         $this->cloudflareHostnames->invalidate($cfId, $zoneId);
 
-        return $this->enrichDetailedHostname($hostname, $cfId, $zoneId, $hostnameId, $previousStatus);
+        return $this->enrichDetailedHostname($providerId, $hostname, $cfId, $zoneId, $hostnameId, $previousStatus);
     }
 
     public function createHostname(string $providerId, string $zoneName, array $data): array
@@ -134,6 +137,7 @@ class HostnameService
                 (string) ($data['sync_provider_id'] ?? ''),
                 (string) ($data['sync_zone'] ?? ''),
                 (bool) ($data['auto_preferred'] ?? false),
+                (string) ($hostname['hostname'] ?? ''),
             );
         }
 
@@ -159,6 +163,7 @@ class HostnameService
                 (string) ($data['sync_provider_id'] ?? ''),
                 (string) ($data['sync_zone'] ?? ''),
                 (bool) ($data['auto_preferred'] ?? false),
+                (string) ($hostname['hostname'] ?? $hostnameFqdn),
             );
         }
 
@@ -201,7 +206,7 @@ class HostnameService
     }
 
     /**
-     * 仅取 fallback origin 字符串值(HostnameSyncService 内部用)
+     * 仅取 fallback origin 字符串值（SaasSyncService 内部用）
      */
     public function fallbackOrigin(string $providerId, string $zoneName): ?string
     {
@@ -209,7 +214,7 @@ class HostnameService
     }
 
     /**
-     * 解析 hostname provider → [cloudflare provider id, cloudflare zone id]
+     * 解析 saas provider → [cloudflare provider id, cloudflare zone id]
      */
     private function resolveZone(string $providerId, string $zoneName): array
     {
@@ -263,6 +268,7 @@ class HostnameService
         $preference = $this->preferences->get($cfId, $hostnameId) ?? [];
 
         return [
+            'hostname' => (string) ($preference['hostname'] ?? ''),
             'sync_target' => (string) ($preference['sync_target'] ?? ''),
             'sync_provider_id' => (string) ($preference['sync_provider_id'] ?? ''),
             'sync_zone' => (string) ($preference['sync_zone'] ?? ''),
@@ -270,13 +276,32 @@ class HostnameService
         ];
     }
 
+    public function effectiveSyncConfig(string $providerId, string $hostnameFqdn, string $zoneName = ''): array
+    {
+        $explicit = $this->syncConfig($providerId, $hostnameFqdn, $zoneName);
+
+        $target = trim((string) ($explicit['sync_target'] ?? ''));
+        if ($target === '') {
+            $target = $this->defaultSyncTarget($providerId);
+        }
+
+        return [
+            'hostname' => (string) ($explicit['hostname'] ?? ''),
+            'sync_target' => $target,
+            'sync_provider_id' => $this->effectiveSyncProviderId($providerId, $target, (string) ($explicit['sync_provider_id'] ?? '')),
+            'sync_zone' => (string) ($explicit['sync_zone'] ?? ''),
+            'auto_preferred' => (bool) ($explicit['auto_preferred'] ?? false),
+            'explicit' => trim((string) ($explicit['sync_target'] ?? '')) !== '' || trim((string) ($explicit['sync_provider_id'] ?? '')) !== '' || trim((string) ($explicit['sync_zone'] ?? '')) !== '',
+        ];
+    }
+
     public function defaultSyncTarget(string $providerId): string
     {
         $provider = $this->providers->requireType(
             $providerId,
-            'hostname',
-            'Hostname provider not found',
-            'hostname_provider_not_found',
+            'saas',
+            'SaaS provider not found',
+            'saas_provider_not_found',
         );
 
         if (trim((string) ($provider['dnspod_provider'] ?? '')) !== '') {
@@ -325,7 +350,7 @@ class HostnameService
         );
     }
 
-    private function enrichDetailedHostname(array $hostname, string $cfId, string $zoneId, string $hostnameId, string $previousStatus = ''): array
+    private function enrichDetailedHostname(string $providerId, array $hostname, string $cfId, string $zoneId, string $hostnameId, string $previousStatus = ''): array
     {
         $ssl = is_array($hostname['ssl'] ?? null) ? $hostname['ssl'] : [];
         $hostname['ssl'] = $ssl;
@@ -336,16 +361,57 @@ class HostnameService
             $hostname['previous_status'] = $previousStatus;
         }
 
-        return $this->withPreference($hostname, $cfId, $hostnameId);
+        return $this->applyEffectiveSyncConfig($providerId, $this->withPreference($hostname, $cfId, $hostnameId));
+    }
+
+    private function applyEffectiveSyncConfig(string $providerId, array $hostname): array
+    {
+        $effective = $this->effectiveSyncConfig($providerId, (string) ($hostname['hostname'] ?? ''));
+        $hostname['effective_sync_target'] = $effective['sync_target'];
+        $hostname['effective_sync_provider_id'] = $effective['sync_provider_id'];
+        $hostname['effective_sync_zone'] = $effective['sync_zone'];
+        $hostname['sync_config_explicit'] = (bool) ($effective['explicit'] ?? false);
+
+        return $hostname;
+    }
+
+    private function effectiveSyncProviderId(string $providerId, string $target, string $explicitProviderId): string
+    {
+        $explicitProviderId = trim($explicitProviderId);
+        if ($explicitProviderId !== '') {
+            return $explicitProviderId;
+        }
+
+        $provider = $this->providers->requireType(
+            $providerId,
+            'saas',
+            'SaaS provider not found',
+            'saas_provider_not_found',
+        );
+
+        if ($target === 'dnspod') {
+            return trim((string) ($provider['dnspod_provider'] ?? ''));
+        }
+
+        if ($target === 'cloudflare_dns') {
+            $cloudflareDnsProvider = trim((string) ($provider['cloudflare_dns_provider'] ?? ''));
+            if ($cloudflareDnsProvider !== '') {
+                return $cloudflareDnsProvider;
+            }
+
+            return trim((string) ($provider['cloudflare_provider'] ?? ''));
+        }
+
+        return '';
     }
 
     private function resolveHostnameByFqdn(string $providerId, string $hostnameFqdn): array
     {
         $provider = $this->providers->requireType(
             $providerId,
-            'hostname',
-            'Hostname provider not found',
-            'hostname_provider_not_found',
+            'saas',
+            'SaaS provider not found',
+            'saas_provider_not_found',
         );
         $cfId = $this->cloudflareProviderId($providerId);
         $fqdn = strtolower(trim($hostnameFqdn));
@@ -366,7 +432,7 @@ class HostnameService
             }
         }
 
-        throw new ApiException('Hostname not found', 404, 'hostname_not_found', [
+        throw new ApiException('SaaS hostname not found', 404, 'saas_hostname_not_found', [
             'hostname' => $hostnameFqdn,
             'provider_id' => $provider['id'] ?? $providerId,
         ]);
@@ -399,17 +465,17 @@ class HostnameService
     {
         $provider = $this->providers->requireType(
             $providerId,
-            'hostname',
-            'Hostname provider not found',
-            'hostname_provider_not_found',
+            'saas',
+            'SaaS provider not found',
+            'saas_provider_not_found',
         );
 
         $cfId = trim((string) ($provider['cloudflare_provider'] ?? ''));
         if ($cfId === '') {
             throw new ApiException(
-                'Hostname provider is not linked to a Cloudflare provider',
+                'SaaS provider is not linked to a Cloudflare provider',
                 422,
-                'hostname_cloudflare_provider_missing',
+                'saas_cloudflare_provider_missing',
                 ['provider_id' => $providerId],
             );
         }

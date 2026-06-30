@@ -9,7 +9,7 @@ use think\facade\Cache;
 /**
  * Provider Service 通用缓存能力
  *
- * 抽取 dnspod / cloudflare / edgeone / hostname 子 service 共享的缓存样板：
+ * 抽取 dnspod / cloudflare / edgeone / saas 子 service 共享的缓存样板：
  *   - 缓存 key 用稳定可读格式（便于调试，命中规则一目了然）
  *   - 缓存 tag 按 <source>:<entity>:<providerId> 拼，与 ProviderRepository 失效逻辑保持一致
  *

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace app\controller\hostname;
+namespace app\controller\saas;
 
 use app\controller\concerns\ValidatesInput;
-use app\service\hostname\PreferredDomainService;
+use app\service\saas\PreferredDomainService;
 use app\support\ApiResponse;
 use app\validate\PreferredDomainValidate;
 use think\Response;
@@ -13,7 +13,7 @@ use think\Response;
 /**
  * 优选域名控制器
  *
- * 全局共享一份列表,用于 hostname 创建/编辑时的"境内优选 CNAME"下拉候选。
+ * 全局共享一份列表，用于 saas 创建/编辑时的"境内优选 CNAME"下拉候选。
  * URL 中的 :domain 即记录标识,需 URL-encode。
  */
 class PreferredDomainController

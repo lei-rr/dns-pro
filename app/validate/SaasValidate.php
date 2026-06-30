@@ -18,7 +18,7 @@ use think\Validate;
  *   - update           PUT  /hostnames/:id               method / min_tls_version / custom_origin_server / preferred_domain
  *   - fallbackOrigin   PUT  /fallback-origin             origin
  */
-class HostnameValidate extends Validate
+class SaasValidate extends Validate
 {
     protected $rule = [
         'page' => 'number|egt:1',

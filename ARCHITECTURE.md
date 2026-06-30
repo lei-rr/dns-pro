@@ -92,7 +92,7 @@
 
 典型类：
 
-- `HostnameService`
+- `SaasService`
 - `EdgeOneService`
 - `ProviderService`
 - `CloudflaredTunnelService`
@@ -120,7 +120,7 @@ workflow 不负责：
 
 典型类：
 
-- `HostnameWorkflowService`
+- `SaasWorkflowService`
 - `EdgeOneWorkflowService`
 
 ### 3.3 Provider Gateway
@@ -155,7 +155,7 @@ Gateway 不负责：
 
 - `ProviderRepository`
 - `AppConfigRepository`
-- `HostnamePreferenceRepository`
+- `SaasPreferenceRepository`
 - `PreferredDomainRepository`
 
 规则：
@@ -208,7 +208,7 @@ side_effects: {
 
 业务模块：
 
-- `hostname`
+- `saas`
 - `edgeone`
 - `cloudflared`
 - `cloudflare`
@@ -224,8 +224,8 @@ side_effects: {
 - 中立支撑服务
 - provider gateway
 3. 不允许出现：
-- `hostname -> edgeone`
-- `cloudflared -> hostname`
+- `saas -> edgeone`
+- `cloudflared -> saas`
 - `edgeone -> cloudflared`
 
 ## 8. 前端架构约定

@@ -1,29 +1,36 @@
-import { hostnameApi, preferredDomainApi } from '../utils/api.js'
+import { preferredDomainApi, saasApi } from '../utils/api.js'
 import { dnsApi } from '../../common/dns/api.js'
-import { statusColor, statusLabel, formatDate } from '../utils/hostname.js'
+import { statusColor, statusLabel, formatDate } from '../utils/saas.js'
 import { providerAvatarColor } from '../../../providers/branding.js'
 import { loadProviders } from '../../../providers/store.js'
 import { providerPath } from '../../../routes/paths.js'
 import { message, modal } from '../../../shared/plugins/antDesignVue.js'
 import { errorMessage } from '../../../shared/utils/errors.js'
 import { tablePagination } from '../../../shared/utils/pagination.js'
-import HostnameCreateModal from '../components/HostnameCreateModal.js'
-import HostnameDetailModal from '../components/HostnameDetailModal.js'
-import HostnameFallbackOriginModal from '../components/HostnameFallbackOriginModal.js'
+import BatchToolbar from '../../../shared/components/BatchToolbar.js'
+import SaasCreateModal from '../components/SaasCreateModal.js'
+import SaasDetailModal from '../components/SaasDetailModal.js'
+import SaasFallbackOriginModal from '../components/SaasFallbackOriginModal.js'
 import PreferredDomainsModal from '../components/PreferredDomainsModal.js'
 
 export default {
-  components: { HostnameCreateModal, HostnameDetailModal, HostnameFallbackOriginModal, PreferredDomainsModal },
+  components: { BatchToolbar, SaasCreateModal, SaasDetailModal, SaasFallbackOriginModal, PreferredDomainsModal },
   props: ['provider', 'zoneName'],
   data() {
     return {
       hostnames: [],
       loading: true,
       notFound: false,
+      selectedHostnames: [],
+      selectionResetKey: 0,
       creating: false,
       editingHostname: null,
       savingEdit: false,
       deleting: false,
+      syncing: false,
+      syncingText: '',
+      checking: false,
+      checkingText: '',
       detailLoading: false,
       detailRequestToken: 0,
       listLoadRequestToken: 0,
@@ -76,6 +83,7 @@ export default {
     columns() {
       const cols = [
         { title: '自定义主机名', dataIndex: 'hostname', key: 'hostname', width: 240 },
+        { title: '同步配置', key: 'sync', width: 220 },
         { title: '证书状态', key: 'ssl_status', width: 100 },
         { title: '到期日期', key: 'expires_on', width: 110 },
         { title: '主机名状态', key: 'status', width: 100 },
@@ -101,7 +109,7 @@ export default {
     },
 
     hostnameAvatarColor() {
-      return providerAvatarColor('hostname')
+      return providerAvatarColor('saas')
     },
 
     resetContextState() {
@@ -110,7 +118,13 @@ export default {
       this.showFallbackOrigin = false
       this.editingHostname = null
       this.selectedHostname = null
+      this.selectedHostnames = []
+      this.selectionResetKey += 1
       this.handleDetailsOpenChange(false)
+    },
+    clearSelection() {
+      this.selectedHostnames = []
+      this.selectionResetKey += 1
     },
 
     async load(options = {}) {
@@ -127,7 +141,7 @@ export default {
           await this.loadSyncZones(requestToken)
         }
         if (requestToken !== this.listLoadRequestToken) return
-        const response = await hostnameApi.hostnames(this.provider, this.decodedZoneName, { page: 1, per_page: 100, ...options })
+        const response = await saasApi.hostnames(this.provider, this.decodedZoneName, { page: 1, per_page: 100, ...options })
         if (requestToken !== this.listLoadRequestToken) return
         this.hostnames = response.data
         this.syncSelectedHostnameFromList()
@@ -248,7 +262,7 @@ export default {
         }
 
         const options = { autoSync: !!formData.sync_target }
-        const response = await hostnameApi.createHostname(this.provider, this.decodedZoneName, payload, options)
+        const response = await saasApi.createHostname(this.provider, this.decodedZoneName, payload, options)
         message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.sync, '自定义主机名已创建'))
         this.showCreateForm = false
         await this.load({ refresh: true })
@@ -284,7 +298,7 @@ export default {
         }
 
         const options = { autoSync: !!formData.sync_target }
-        const response = await hostnameApi.updateHostname(
+        const response = await saasApi.updateHostname(
           this.provider,
           this.decodedZoneName,
           this.editingHostname.hostname,
@@ -320,7 +334,7 @@ export default {
       this.detailLoading = true
 
       try {
-        const response = await hostnameApi.hostname(this.provider, this.decodedZoneName, record.hostname)
+        const response = await saasApi.hostname(this.provider, this.decodedZoneName, record.hostname)
         if (requestToken !== this.detailRequestToken) return
         this.selectedHostname = response.data
         this.mergeHostnameRecord(response.data)
@@ -334,7 +348,7 @@ export default {
     async refreshHostname(record) {
       this.refreshing = { ...this.refreshing, [record.id]: true }
       try {
-        const response = await hostnameApi.refreshHostname(this.provider, this.decodedZoneName, record.hostname)
+        const response = await saasApi.refreshHostname(this.provider, this.decodedZoneName, record.hostname)
         this.mergeHostnameRecord(response.data)
         // 只在详情已经打开且就是同一条 hostname 时才更新详情内容,不主动弹出详情
         if (this.showDetails && this.selectedHostname?.id === record.id) {
@@ -346,6 +360,89 @@ export default {
         message.error(errorMessage(error))
       } finally {
         this.refreshing = { ...this.refreshing, [record.id]: false }
+      }
+    },
+    syncConfigText(record) {
+      const target = record.effective_sync_target || record.sync_target || ''
+      const providerId = record.effective_sync_provider_id || record.sync_provider_id || ''
+      const zone = record.effective_sync_zone || record.sync_zone || ''
+      if (!target) return '未配置'
+      const targetLabel = target === 'cloudflare_dns' ? 'Cloudflare DNS' : 'DNSPod'
+      return [targetLabel, providerId, zone].filter(Boolean).join(' / ')
+    },
+    async syncHostname(record) {
+      this.syncing = true
+      try {
+        const response = await saasApi.syncHostname(this.provider, this.decodedZoneName, record.hostname)
+        message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.sync, '已执行 DNS 重同步'))
+        await this.load({ refresh: true })
+      } catch (error) {
+        message.error(errorMessage(error))
+      } finally {
+        this.syncing = false
+        this.syncingText = ''
+      }
+    },
+    async batchSyncHostnames() {
+      if (!this.selectedHostnames.length) return
+      this.syncing = true
+      const failed = []
+      try {
+        const items = [...this.selectedHostnames]
+        for (const [index, record] of items.entries()) {
+          this.syncingText = `正在重同步 ${index + 1}/${items.length}`
+          try {
+            await saasApi.syncHostname(this.provider, this.decodedZoneName, record.hostname)
+          } catch (error) {
+            failed.push(`${record.hostname}: ${error.message}`)
+          }
+        }
+        if (failed.length) {
+          message.warning(`批量重同步完成，失败 ${failed.length} 条`)
+        } else {
+          message.success('批量重同步完成')
+        }
+        this.clearSelection()
+        await this.load({ refresh: true })
+      } finally {
+        this.syncing = false
+        this.syncingText = ''
+      }
+    },
+    async checkHostnameSync(record) {
+      this.checking = true
+      try {
+        const response = await saasApi.checkHostnameSync(this.provider, this.decodedZoneName, record.hostname)
+        message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.sync, '已检查同步状态'))
+      } catch (error) {
+        message.error(errorMessage(error))
+      } finally {
+        this.checking = false
+        this.checkingText = ''
+      }
+    },
+    async batchCheckHostnames() {
+      if (!this.selectedHostnames.length) return
+      this.checking = true
+      const failed = []
+      try {
+        const items = [...this.selectedHostnames]
+        for (const [index, record] of items.entries()) {
+          this.checkingText = `正在检查 ${index + 1}/${items.length}`
+          try {
+            await saasApi.checkHostnameSync(this.provider, this.decodedZoneName, record.hostname)
+          } catch (error) {
+            failed.push(`${record.hostname}: ${error.message}`)
+          }
+        }
+        if (failed.length) {
+          message.warning(`批量检查完成，失败 ${failed.length} 条`)
+        } else {
+          message.success('批量检查完成')
+        }
+      } finally {
+        this.checking = false
+        this.checkingText = ''
       }
     },
 
@@ -361,7 +458,7 @@ export default {
     async deleteHostname(record) {
       this.deleting = true
       try {
-        const response = await hostnameApi.deleteHostname(this.provider, this.decodedZoneName, record.hostname)
+        const response = await saasApi.deleteHostname(this.provider, this.decodedZoneName, record.hostname)
         message.success(this.dnsOperationMessage(response?.data?.side_effects?.dns?.cleanup, '已删除'))
         if (this.selectedHostname?.id === record.id) {
           this.selectedHostname = null
@@ -421,6 +518,8 @@ export default {
           <a-button type="primary" :disabled="notFound" @click="openCreate">新增主机名</a-button>
         </div>
       </div>
+      <a-alert v-if="syncingText || checkingText" type="warning" show-icon style="margin-bottom: 16px" :message="syncingText || checkingText" />
+      <BatchToolbar :count="selectedHostnames.length" :deleting="syncing" delete-text="批量重同步" :actions="[{ key: 'check', label: '批量检查', loading: checking }]" @delete="batchSyncHostnames" @action="key => { if (key === 'check') batchCheckHostnames() }" @clear="clearSelection" />
 
       <a-result v-if="notFound" status="404" title="站点不存在或不可访问" :sub-title="decodedZoneName">
         <template #extra><a-button type="primary" @click="$router.push(zonesPath)">返回站点</a-button></template>
@@ -433,6 +532,7 @@ export default {
         :row-key="record => record.id || record.hostname"
         :loading="loading"
         :pagination="pagination"
+        :row-selection="{ selectedRowKeys: selectedHostnames.map(item => item.id || item.hostname), onChange: (_keys, rows) => selectedHostnames = rows }"
         size="middle"
         :scroll="{ x: 1000 }"
         :locale="{ emptyText: '暂无自定义主机名' }"
@@ -443,6 +543,11 @@ export default {
               <a-avatar size="small" :style="{ background: hostnameAvatarColor() }">{{ hostnameAvatar(record.hostname) }}</a-avatar>
               <a @click="openDetails(record)">{{ record.hostname }}</a>
             </a-space>
+          </template>
+          <template v-else-if="column.key === 'sync'">
+            <a-typography-text :ellipsis="{ tooltip: syncConfigText(record) }" style="max-width: 200px; display: inline-block;">
+              {{ syncConfigText(record) }}
+            </a-typography-text>
           </template>
           <template v-else-if="column.key === 'ssl_status'">
             <a-tag :color="statusColor(record.ssl?.status)">{{ statusLabel(record.ssl?.status) }}</a-tag>
@@ -467,10 +572,12 @@ export default {
               <a-dropdown>
                 <a-button type="link" size="small">更多</a-button>
                 <template #overlay>
-                  <a-menu>
-                    <a-menu-item @click="openEdit(record)">编辑</a-menu-item>
-                    <a-menu-item danger @click="askDelete(record)">删除</a-menu-item>
-                  </a-menu>
+                    <a-menu>
+                      <a-menu-item @click="openEdit(record)">编辑</a-menu-item>
+                      <a-menu-item @click="checkHostnameSync(record)">检查同步</a-menu-item>
+                      <a-menu-item @click="syncHostname(record)">重同步</a-menu-item>
+                      <a-menu-item danger @click="askDelete(record)">删除</a-menu-item>
+                    </a-menu>
                 </template>
               </a-dropdown>
             </a-space>
@@ -478,7 +585,7 @@ export default {
         </template>
       </a-table>
 
-      <hostname-create-modal
+      <saas-create-modal
         :open="showCreateForm"
         :title="editingHostname ? '编辑自定义主机名' : '新增自定义主机名'"
         :ok-text="editingHostname ? '保存' : '创建'"
@@ -496,7 +603,7 @@ export default {
         @update:open="value => { showCreateForm = value; if (!value) editingHostname = null }"
         @submit="editingHostname ? update($event) : create($event)"
       />
-      <hostname-detail-modal
+      <saas-detail-modal
         :open="showDetails"
         :hostname="selectedHostname"
         :loading="detailLoading"
@@ -509,7 +616,7 @@ export default {
         v-model:open="showPreferredManager"
         @update="onPreferredUpdate"
       />
-      <hostname-fallback-origin-modal
+      <saas-fallback-origin-modal
         v-model:open="showFallbackOrigin"
         :provider="provider"
         :zone-name="decodedZoneName"

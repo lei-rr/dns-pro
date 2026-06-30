@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace app\service\provider;
 
 use app\exception\ApiException;
+use app\service\saas\SaasPreferenceService;
 use app\repository\ProviderRepository;
 use app\validate\ProviderNormalizer;
 
@@ -19,6 +20,7 @@ class ProviderService
     public function __construct(
         private readonly ProviderRepository $providers,
         private readonly ProviderNormalizer $normalizer,
+        private readonly SaasPreferenceService $hostnamePreferences,
     ) {
     }
 
@@ -29,12 +31,26 @@ class ProviderService
 
     public function all(): array
     {
-        return $this->providers->all();
+        $providers = $this->providers->all();
+        $dependencyMap = $this->dependencyMap($providers);
+
+        return array_map(
+            fn (array $provider) => $provider + ['dependencies' => $dependencyMap[$provider['id'] ?? ''] ?? []],
+            $providers,
+        );
     }
 
     public function find(string $id): ?array
     {
-        return $this->providers->find($id);
+        $provider = $this->providers->find($id);
+        if ($provider === null) {
+            return null;
+        }
+
+        $providers = $this->providers->all();
+        $dependencyMap = $this->dependencyMap($providers);
+
+        return $provider + ['dependencies' => $dependencyMap[$id] ?? []];
     }
 
     public function create(array $data): array
@@ -80,7 +96,15 @@ class ProviderService
     public function delete(string $id): void
     {
         $this->providers->mutateAll(function (array $providers) use ($id): array {
-            $this->checkProviderNotInUse($id, $providers);
+            $dependencies = $this->dependenciesFor($id, $providers);
+            if ($dependencies !== []) {
+                throw new ApiException(
+                    'Provider is still in use',
+                    409,
+                    'provider_in_use',
+                    ['dependencies' => $dependencies],
+                );
+            }
 
             $next = array_values(array_filter($providers, static fn (array $p) => ($p['id'] ?? '') !== $id));
             if (count($next) === count($providers)) {
@@ -106,7 +130,13 @@ class ProviderService
             return array_values(array_map(static fn (string $id) => $byId[$id], $ids));
         });
 
-        return array_map(fn (array $p) => $this->providers->present($p), $ordered);
+        $presented = array_map(fn (array $p) => $this->providers->present($p), $ordered);
+        $dependencyMap = $this->dependencyMap($presented);
+
+        return array_map(
+            fn (array $provider) => $provider + ['dependencies' => $dependencyMap[$provider['id'] ?? ''] ?? []],
+            $presented,
+        );
     }
 
     // ---------- internal ----------
@@ -124,35 +154,71 @@ class ProviderService
     }
 
     /**
-     * 检查 provider 是否被其他 provider 引用：
-     *   - EdgeOne.dnspod_provider 引用了 DNSPod
-     *   - Hostname.cloudflare_provider 引用了 Cloudflare
-     *   - Hostname.cloudflare_dns_provider 引用了 Cloudflare
-     *   - Hostname.dnspod_provider 引用了 DNSPod
-     *   - Cloudflared.cloudflare_provider 引用了 Cloudflare
+     * @param array<int, array<string, mixed>> $providers
+     * @return array<string, array<int, array<string, string>>>
      */
-    private function checkProviderNotInUse(string $id, array $providers): void
+    private function dependencyMap(array $providers): array
     {
-        foreach ($providers as $provider) {
-            $type = $provider['type'] ?? '';
-            $referencedBy = match (true) {
-                $type === 'edgeone' && ($provider['dnspod_provider'] ?? '') === $id => 'EdgeOne',
-                $type === 'hostname' && ($provider['cloudflare_provider'] ?? '') === $id => 'Hostname',
-                $type === 'hostname' && ($provider['cloudflare_dns_provider'] ?? '') === $id => 'Hostname',
-                $type === 'hostname' && ($provider['dnspod_provider'] ?? '') === $id => 'Hostname',
-                $type === 'cloudflared' && ($provider['cloudflare_provider'] ?? '') === $id => 'Cloudflare Tunnel',
-                default => null,
-            };
+        $map = [];
 
-            if ($referencedBy !== null) {
-                throw new ApiException(
-                    sprintf('Provider is referenced by %s "%s"', $referencedBy, $provider['id'] ?? ''),
-                    409,
-                    'provider_in_use',
-                    ['referenced_by' => $provider['id'] ?? ''],
-                );
+        foreach ($providers as $provider) {
+            $providerId = (string) ($provider['id'] ?? '');
+            if ($providerId === '') {
+                continue;
+            }
+            $type = $provider['type'] ?? '';
+
+            foreach ([
+                ['field' => 'dnspod_provider', 'target_type' => 'dnspod', 'label' => 'EdgeOne 关联 DNSPod', 'applies_to' => ['edgeone']],
+                ['field' => 'cloudflare_provider', 'target_type' => 'cloudflare', 'label' => 'SaaS 关联 Cloudflare', 'applies_to' => ['saas']],
+                ['field' => 'cloudflare_dns_provider', 'target_type' => 'cloudflare', 'label' => 'SaaS 旧版 Cloudflare DNS 关联', 'applies_to' => ['saas']],
+                ['field' => 'dnspod_provider', 'target_type' => 'dnspod', 'label' => 'SaaS 旧版 DNSPod 关联', 'applies_to' => ['saas']],
+                ['field' => 'cloudflare_provider', 'target_type' => 'cloudflare', 'label' => 'Cloudflare Tunnel 关联 Cloudflare', 'applies_to' => ['cloudflared']],
+            ] as $rule) {
+                if (!in_array($type, $rule['applies_to'], true)) {
+                    continue;
+                }
+                $targetId = trim((string) ($provider[$rule['field']] ?? ''));
+                if ($targetId === '') {
+                    continue;
+                }
+
+                $map[$targetId][] = [
+                    'kind' => 'provider',
+                    'type' => $type,
+                    'id' => $providerId,
+                    'name' => (string) ($provider['name'] ?? $providerId),
+                    'reason' => $rule['label'],
+                ];
             }
         }
+
+        foreach ($this->hostnamePreferences->listAll() as $key => $preference) {
+            $syncProviderId = trim((string) ($preference['sync_provider_id'] ?? ''));
+            if ($syncProviderId === '') {
+                continue;
+            }
+
+            $hostname = trim((string) ($preference['hostname'] ?? ''));
+            $map[$syncProviderId][] = [
+                'kind' => 'hostname_sync',
+                'type' => 'saas',
+                'id' => (string) $key,
+                'name' => $hostname !== '' ? $hostname : (string) $key,
+                'reason' => 'SaaS 同步服务商',
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $providers
+     * @return array<int, array<string, string>>
+     */
+    private function dependenciesFor(string $id, array $providers): array
+    {
+        return $this->dependencyMap($providers)[$id] ?? [];
     }
 
     /**

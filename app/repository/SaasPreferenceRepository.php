@@ -7,11 +7,11 @@ namespace app\repository;
 use app\support\JsonStore;
 
 /**
- * 优选域名仓储
+ * Hostname 偏好仓储
  *
- * 统一 data/saas/preferred-domains.json 的本地持久化访问边界。
+ * 统一 data/saas/preferences.json 的本地持久化访问边界。
  */
-class PreferredDomainRepository
+class SaasPreferenceRepository
 {
     private readonly JsonStore $store;
 
@@ -22,8 +22,8 @@ class PreferredDomainRepository
             return;
         }
 
-        $this->migrateLegacyFile('hostname/preferred-domains.json', 'saas/preferred-domains.json');
-        $this->store = new JsonStore('saas/preferred-domains.json', ['items' => []]);
+        $this->migrateLegacyFile('hostname/preferences.json', 'saas/preferences.json');
+        $this->store = new JsonStore('saas/preferences.json', ['items' => []]);
     }
 
     public function read(): array

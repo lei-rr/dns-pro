@@ -13,7 +13,7 @@ namespace app\service\dnspod;
  *   - 与目标值对比，决定 create / update / unchanged / delete
  *   - 失败时返回 status=failed + error，调用方按需聚合
  *
- * 上层调用方（如 HostnameSyncService）只需关心业务语义（origin_cname / ownership / dcv），
+ * 上层调用方（如 SaasSyncService）只需关心业务语义（origin_cname / ownership / dcv），
  * 不需要重复实现"查→比→改"的细节。
  */
 class DnsPodRecordSync
