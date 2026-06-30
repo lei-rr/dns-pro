@@ -192,6 +192,7 @@ class ProviderRepository
             return $provider;
         }
 
+        $provider['name'] = $this->displayName($provider, $definition);
         $configured = $this->isConfigured($provider, $definition);
         $hidden = $this->hideSecretFields($provider, $definition);
 
@@ -297,6 +298,12 @@ class ProviderRepository
         }
 
         return $provider;
+    }
+
+    private function displayName(array $provider, array $definition): string
+    {
+        $name = trim((string) ($provider['name'] ?? ''));
+        return $name !== '' ? $name : (string) ($definition['name'] ?? '');
     }
 
     /**

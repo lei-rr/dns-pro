@@ -59,7 +59,7 @@ export default {
     edit(provider) {
       this.editing = provider
       this.form = Object.fromEntries(
-        [['name', provider.name || ''], ...provider.editable_fields.map((field) => [field, this.editFieldValue(provider, field)])],
+        [['name', this.editNameValue(provider)], ...provider.editable_fields.map((field) => [field, this.editFieldValue(provider, field)])],
       )
     },
     openCreate() {
@@ -272,6 +272,11 @@ export default {
       if (this.isSecretField(field)) return ''
       if (!this.isProviderSelectField(field)) return provider[field] || ''
       return this.defaultSelectFieldValue(field, provider[field] || '')
+    },
+    editNameValue(provider) {
+      const definition = this.providerDefinition(provider.type)
+      const current = String(provider.name || '')
+      return current === String(definition?.name || '') ? '' : current
     },
     defaultSelectFieldValue(field, currentValue = '') {
       if (!this.isProviderSelectField(field)) return currentValue

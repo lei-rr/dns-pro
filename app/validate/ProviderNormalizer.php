@@ -47,7 +47,7 @@ class ProviderNormalizer
 
         $provider = [
             'id' => $id,
-            'name' => $this->validateName($data['name'] ?? '', $definition['name'] ?? ''),
+            'name' => $this->validateName($data['name'] ?? ''),
             'type' => $type,
         ];
 
@@ -97,11 +97,9 @@ class ProviderNormalizer
     /**
      * 验证服务商名称
      */
-    public function validateName(mixed $name, string $defaultName): string
+    public function validateName(mixed $name): string
     {
-        $name = trim((string) $name);
-
-        return $name !== '' ? $name : $defaultName;
+        return trim((string) $name);
     }
 
     /**

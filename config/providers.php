@@ -36,7 +36,7 @@ return [
         ],
         'saas' => [
             'type' => 'saas',
-            'name' => 'SaaS',
+            'name' => 'Cloudflare SaaS',
             'fields' => ['cloudflare_provider'],
             'required' => ['cloudflare_provider'],
             'secret_fields' => [],

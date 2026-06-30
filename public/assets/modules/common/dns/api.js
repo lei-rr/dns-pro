@@ -103,7 +103,7 @@ function presentDomain(provider, domain) {
     ...domain,
     provider,
     provider_type: type,
-    provider_name: cached?.name || ({ cloudflare: 'Cloudflare', dnspod: 'DNSPod', saas: 'SaaS', edgeone: 'EdgeOne' })[type] || type,
+    provider_name: cached?.name || ({ cloudflare: 'Cloudflare', dnspod: 'DNSPod', saas: 'Cloudflare SaaS', edgeone: 'EdgeOne' })[type] || type,
     name_servers: domain.name_servers || domain.effective_dns || [],
     access_status: domain.access_status || domain.status || domain.dns_status,
   }
