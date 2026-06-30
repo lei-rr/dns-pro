@@ -15,7 +15,7 @@ export default {
   },
   emits: ['edit', 'status', 'certificate', 'delete', 'selection-change', 'change'],
   data() {
-    return { selectedRowKeys: [] }
+    return { internalSelectedRowKeys: [] }
   },
   computed: {
     columns() {
@@ -67,11 +67,11 @@ export default {
   },
   watch: {
     records() {
-      this.selectedRowKeys = []
+      this.internalSelectedRowKeys = []
       this.$emit('selection-change', [])
     },
     selectionResetKey() {
-      this.selectedRowKeys = []
+      this.internalSelectedRowKeys = []
       this.$emit('selection-change', [])
     },
   },
@@ -83,11 +83,11 @@ export default {
       return edgeOneStatusLabels[record.status] || record.status || '-'
     },
     selectRows(keys, rows) {
-      this.selectedRowKeys = keys
+      this.internalSelectedRowKeys = keys
       this.$emit('selection-change', rows)
     },
     clearSelection() {
-      this.selectedRowKeys = []
+      this.internalSelectedRowKeys = []
       this.$emit('selection-change', [])
     },
     handleTableChange(pagination) {
@@ -140,7 +140,7 @@ export default {
       :row-key="record => record.name"
       :loading="loading"
       :pagination="tablePaginationConfig"
-      :row-selection="{ selectedRowKeys, onChange: selectRows, getCheckboxProps: record => ({ disabled: record.status !== 'offline' }) }"
+      :row-selection="{ selectedRowKeys: internalSelectedRowKeys, onChange: selectRows }"
       :locale="{ emptyText }"
       size="middle"
       :scroll="{ x: 1060 }"

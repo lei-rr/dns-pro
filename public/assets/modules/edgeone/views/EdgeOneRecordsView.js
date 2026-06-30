@@ -27,7 +27,9 @@ export default {
       loading: true,
       saving: false,
       deleting: false,
+      statusUpdating: false,
       deletingText: '',
+      statusUpdatingText: '',
       providerMeta: null,
       zoneMeta: null,
       loadRequestToken: 0,
@@ -214,6 +216,34 @@ export default {
         onOk: () => this.batchRemove(dialog, total, content),
       })
     },
+    askBatchDisable() {
+      const onlineRecords = this.selectedRecords.filter((record) => record.status !== 'offline')
+      if (!onlineRecords.length) {
+        message.warning('已选域名均已停用')
+        return
+      }
+
+      const total = onlineRecords.length
+      let dialog = null
+      dialog = modal.confirm({
+        title: '批量停用加速域名',
+        content: this.batchStatusConfirmContent(total),
+        okText: '批量停用',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: () => this.batchDisable(dialog, onlineRecords),
+      })
+    },
+    batchStatusConfirmContent(total) {
+      const base = `确认停用已选的 ${total} 个加速域名？`
+      return Vue.h('div', { style: 'white-space: pre-wrap' }, this.statusUpdatingText ? `${base}\n\n${this.statusUpdatingText}` : base)
+    },
+    updateBatchStatusDialog(dialog, total) {
+      dialog?.update?.({
+        content: this.batchStatusConfirmContent(total),
+        cancelButtonProps: { disabled: this.statusUpdating },
+      })
+    },
     batchRemoveConfirmContent(base) {
       return Vue.h('div', { style: 'white-space: pre-wrap' }, this.deletingText ? `${base}\n\n${this.deletingText}` : base)
     },
@@ -239,7 +269,7 @@ export default {
       }
     },
     async updateStatus(record, status) {
-      this.deleting = true
+      this.statusUpdating = true
       try {
         await edgeOneApi.updateAccelerationDomainStatus(this.provider, this.decodedZoneId, record.name, status)
         message.success(status === 'offline' ? '已停用' : '已启用')
@@ -247,7 +277,36 @@ export default {
       } catch (error) {
         message.error(errorMessage(error))
       } finally {
-        this.deleting = false
+        this.statusUpdating = false
+      }
+    },
+    async batchDisable(dialog, records) {
+      this.statusUpdating = true
+      const failed = []
+      const total = records.length
+      try {
+        this.statusUpdatingText = '正在停用 0/' + total
+        this.updateBatchStatusDialog(dialog, total)
+        for (const [index, record] of records.entries()) {
+          this.statusUpdatingText = `正在停用 ${index + 1}/${total}`
+          this.updateBatchStatusDialog(dialog, total)
+          try {
+            await edgeOneApi.updateAccelerationDomainStatus(this.provider, this.decodedZoneId, record.name, 'offline')
+          } catch (error) {
+            failed.push(`${record.name}: ${error.message}`)
+          }
+        }
+
+        if (failed.length) showBatchFailures('批量停用完成', failed, '个')
+        else message.success('批量停用完成')
+
+        this.clearSelection()
+        await this.load({ refresh: true })
+      } catch (error) {
+        message.error(errorMessage(error))
+      } finally {
+        this.statusUpdating = false
+        this.statusUpdatingText = ''
       }
     },
     async batchRemove(dialog, total, base) {
@@ -287,15 +346,15 @@ export default {
           <a-typography-text type="secondary">EdgeOne 加速域名</a-typography-text>
         </div>
         <div class="page-actions">
-          <a-button :loading="loading" :disabled="saving || deleting" @click="load({ refresh: true })">刷新</a-button>
-          <a-button v-if="!notFound" type="primary" :disabled="saving || deleting || !displayZoneName" @click="create">添加加速域名</a-button>
+          <a-button :loading="loading" :disabled="saving || deleting || statusUpdating" @click="load({ refresh: true })">刷新</a-button>
+          <a-button v-if="!notFound" type="primary" :disabled="saving || deleting || statusUpdating || !displayZoneName" @click="create">添加加速域名</a-button>
         </div>
       </div>
       <a-result v-if="notFound" status="404" title="站点不存在或未配置" :sub-title="decodedZoneId">
         <template #extra><a-button type="primary" @click="$router.push(zonesPath)">返回 EdgeOne</a-button></template>
       </a-result>
       <template v-else>
-      <BatchToolbar :count="selectedRecords.length" :deleting="deleting" delete-text="批量删除" @delete="askBatchRemove" @clear="clearSelection" />
+      <BatchToolbar :count="selectedRecords.length" :deleting="deleting || statusUpdating" delete-text="批量删除" :actions="[{ key: 'offline', label: '批量停用', loading: statusUpdating, disabled: selectedRecords.every(record => record.status === 'offline') }]" @delete="askBatchRemove" @action="key => { if (key === 'offline') askBatchDisable() }" @clear="clearSelection" />
       <EdgeOneRecordTable
         :records="records"
         :loading="loading"
