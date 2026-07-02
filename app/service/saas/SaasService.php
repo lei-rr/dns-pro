@@ -44,6 +44,11 @@ class SaasService
         );
     }
 
+    public function cloudflareProviderIdFor(string $providerId): string
+    {
+        return $this->cloudflareProviderId($providerId);
+    }
+
     public function hostnames(string $providerId, string $zoneName, int $page, int $perPage, bool $refresh = false): array
     {
         [$cfId, $zoneId] = $this->resolveZone($providerId, $zoneName);
@@ -141,6 +146,10 @@ class SaasService
             );
         }
 
+        if ($hostnameId !== '') {
+            $this->preferences->markOwnershipTxtCleaned($cfId, $hostnameId, false, (string) ($hostname['hostname'] ?? ''));
+        }
+
         return $this->withPreference($hostname, $cfId, $hostnameId);
     }
 
@@ -166,6 +175,8 @@ class SaasService
                 (string) ($hostname['hostname'] ?? $hostnameFqdn),
             );
         }
+
+        $this->preferences->markOwnershipTxtCleaned($cfId, $hostnameId, false, (string) ($hostname['hostname'] ?? $hostnameFqdn));
 
         return $this->withPreference($hostname, $cfId, $hostnameId);
     }

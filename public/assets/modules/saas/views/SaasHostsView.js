@@ -324,28 +324,12 @@ export default {
 
     // ----- 详情 / 刷新 -----
     async openDetails(record) {
-      // 详情走缓存，避免每次都拉 Cloudflare API（zone idByName + show）
-      // 用户主动需要最新数据时点"刷新状态"
-      const requestToken = this.detailRequestToken + 1
-      this.detailRequestToken = requestToken
       this.selectedHostname = {
         ...record,
         ssl: { ...(record?.ssl || {}) },
       }
       this.showDetails = true
-      this.detailLoading = true
-
-      try {
-        const response = await saasApi.hostname(this.provider, this.decodedZoneName, record.hostname)
-        if (requestToken !== this.detailRequestToken) return
-        this.selectedHostname = response.data
-        this.mergeHostnameRecord(response.data)
-      } catch (error) {
-        if (requestToken !== this.detailRequestToken) return
-        message.error(errorMessage(error))
-      } finally {
-        if (requestToken === this.detailRequestToken) this.detailLoading = false
-      }
+      this.detailLoading = false
     },
     async refreshHostname(record) {
       this.refreshing = { ...this.refreshing, [record.id]: true }

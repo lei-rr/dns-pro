@@ -11,7 +11,7 @@ use app\repository\SaasPreferenceRepository;
  *
  * Cloudflare custom_metadata 仅企业版可用，所以 hostname 的本地配置（preferred_domain / sync_target / sync_zone 等）
  * 存到 data/saas/preferences.json，结构：
- *   {"items": {"<cf_provider_id>:<hostname_id>": {"hostname": "app.example.com", "preferred_domain": "...", "sync_target": "...", "sync_provider_id": "...", "sync_zone": "...", "auto_preferred": false}}}
+ *   {"items": {"<cf_provider_id>:<hostname_id>": {"hostname": "app.example.com", "preferred_domain": "...", "sync_target": "...", "sync_provider_id": "...", "sync_zone": "...", "auto_preferred": false, "ownership_txt_cleaned": false}}}
  *
  * 通过 (cf_provider_id, hostname_id) 二元组定位；字段都为空时整条删除。
  */
@@ -27,7 +27,7 @@ class SaasPreferenceService
     /**
      * 读取单条 preference；不存在返回 null
      *
-     * @return array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}|null
+     * @return array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool,ownership_txt_cleaned:bool}|null
      */
     public function get(string $cloudflareProviderId, string $hostnameId): ?array
     {
@@ -40,7 +40,7 @@ class SaasPreferenceService
     /**
      * 列出指定 cloudflare provider 下的所有 preference，返回 [hostname_id => preference]
      *
-     * @return array<string, array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}>
+     * @return array<string, array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool,ownership_txt_cleaned:bool}>
      */
     public function listByProvider(string $cloudflareProviderId): array
     {
@@ -85,10 +85,23 @@ class SaasPreferenceService
         ]);
     }
 
+    public function ownershipTxtCleaned(string $cloudflareProviderId, string $hostnameId): bool
+    {
+        return (bool) (($this->get($cloudflareProviderId, $hostnameId) ?? [])['ownership_txt_cleaned'] ?? false);
+    }
+
+    public function markOwnershipTxtCleaned(string $cloudflareProviderId, string $hostnameId, bool $cleaned, string $hostname = ''): array
+    {
+        return $this->save($cloudflareProviderId, $hostnameId, [
+            'hostname' => trim($hostname),
+            'ownership_txt_cleaned' => $cleaned,
+        ]);
+    }
+
     /**
      * 返回全部 preference，key 仍为 <cf_provider_id>:<hostname_id>
      *
-     * @return array<string, array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}>
+     * @return array<string, array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool,ownership_txt_cleaned:bool}>
      */
     public function listAll(): array
     {
@@ -134,8 +147,8 @@ class SaasPreferenceService
     }
 
     /**
-     * @param array{hostname?:string,preferred_domain?:string,sync_target?:string,sync_provider_id?:string,sync_zone?:string,auto_preferred?:bool} $changes
-     * @return array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool}
+     * @param array{hostname?:string,preferred_domain?:string,sync_target?:string,sync_provider_id?:string,sync_zone?:string,auto_preferred?:bool,ownership_txt_cleaned?:bool} $changes
+     * @return array{hostname:string,preferred_domain:string,sync_target:string,sync_provider_id:string,sync_zone:string,auto_preferred:bool,ownership_txt_cleaned:bool}
      */
     private function save(string $cloudflareProviderId, string $hostnameId, array $changes): array
     {
@@ -155,10 +168,13 @@ class SaasPreferenceService
             if (array_key_exists('auto_preferred', $changes)) {
                 $normalized['auto_preferred'] = (bool) $changes['auto_preferred'];
             }
+            if (array_key_exists('ownership_txt_cleaned', $changes)) {
+                $normalized['ownership_txt_cleaned'] = (bool) $changes['ownership_txt_cleaned'];
+            }
 
             $saved = $normalized;
 
-            if ($normalized['preferred_domain'] === '' && $normalized['sync_target'] === '' && $normalized['sync_provider_id'] === '' && $normalized['sync_zone'] === '' && $normalized['auto_preferred'] === false) {
+            if ($normalized['preferred_domain'] === '' && $normalized['sync_target'] === '' && $normalized['sync_provider_id'] === '' && $normalized['sync_zone'] === '' && $normalized['auto_preferred'] === false && $normalized['ownership_txt_cleaned'] === false) {
                 unset($items[$key]);
             } else {
                 $items[$key] = $normalized;
@@ -182,6 +198,7 @@ class SaasPreferenceService
             'sync_provider_id' => (string) ($row['sync_provider_id'] ?? ''),
             'sync_zone' => (string) ($row['sync_zone'] ?? ''),
             'auto_preferred' => (bool) ($row['auto_preferred'] ?? false),
+            'ownership_txt_cleaned' => (bool) ($row['ownership_txt_cleaned'] ?? false),
         ];
     }
 }

@@ -19,6 +19,7 @@ class SaasWorkflowService
         private readonly SaasService $hostnames,
         private readonly SaasSyncService $sync,
         private readonly SaasCloudflareDnsSyncService $cloudflareSync,
+        private readonly SaasPreferenceService $preferences,
     ) {
     }
 
@@ -29,24 +30,20 @@ class SaasWorkflowService
             return $result;
         }
 
-        $activeStates = ['active', 'active_renewing', 'moved'];
         $cleanup = [];
 
         foreach (($result['items'] ?? []) as $index => $item) {
-            $previous = (string) ($item['previous_status'] ?? '');
-            $current = (string) ($item['status'] ?? '');
             $fqdn = trim((string) ($item['hostname'] ?? ''));
-            $transitioned = $previous !== ''
-                && !in_array($previous, $activeStates, true)
-                && in_array($current, $activeStates, true);
+            $hostnameId = trim((string) ($item['id'] ?? ''));
+            $shouldCleanup = $this->shouldCleanupOwnershipTxt($providerId, $hostnameId, $item);
 
             unset($result['items'][$index]['previous_status']);
 
-            if ($transitioned && $fqdn !== '') {
+            if ($shouldCleanup && $fqdn !== '') {
                 $driver = $this->syncDriverForHostname($providerId, $zoneName, $fqdn);
-                $cleanup[$fqdn] = $this->safeSync(
+                $cleanup[$fqdn] = $this->rememberOwnershipCleanup($providerId, $hostnameId, $fqdn, $this->safeSync(
                     fn () => $driver->cleanupStaleRecords($providerId, $zoneName, $fqdn),
-                );
+                ));
             }
         }
 
@@ -106,18 +103,15 @@ class SaasWorkflowService
     {
         $result = $this->hostnames->refreshHostname($providerId, $zoneName, $hostnameFqdn);
 
-        $activeStates = ['active', 'active_renewing', 'moved'];
-        $previous = (string) ($result['previous_status'] ?? '');
-        $current = (string) ($result['status'] ?? '');
-        $transitioned = $previous !== ''
-            && !in_array($previous, $activeStates, true)
-            && in_array($current, $activeStates, true);
+        $hostnameId = trim((string) ($result['id'] ?? ''));
+        $fqdn = trim((string) ($result['hostname'] ?? ''));
+        $shouldCleanup = $this->shouldCleanupOwnershipTxt($providerId, $hostnameId, $result);
 
-        if ($transitioned) {
+        if ($shouldCleanup) {
             $driver = $this->syncDriverForHostname($providerId, $zoneName, $hostnameFqdn);
-            $cleanup = $this->safeSync(
+            $cleanup = $this->rememberOwnershipCleanup($providerId, $hostnameId, $fqdn, $this->safeSync(
                 fn () => $driver->cleanupStaleRecords($providerId, $zoneName, $hostnameFqdn),
-            );
+            ));
             $result += SideEffectResult::dns([
                 'cleanup' => $this->normalizeCleanupOperation($cleanup, '已执行 DNS 清理'),
             ]);
@@ -222,5 +216,39 @@ class SaasWorkflowService
         }
 
         return 'completed';
+    }
+
+    private function shouldCleanupOwnershipTxt(string $providerId, string $hostnameId, array $hostname): bool
+    {
+        if (!$this->isHostnameActive($hostname) || $hostnameId === '') {
+            return false;
+        }
+
+        return !$this->preferences->ownershipTxtCleaned(
+            $this->hostnames->cloudflareProviderIdFor($providerId),
+            $hostnameId,
+        );
+    }
+
+    private function rememberOwnershipCleanup(string $providerId, string $hostnameId, string $fqdn, array $result): array
+    {
+        if ($hostnameId === '') {
+            return $result;
+        }
+
+        $cleaned = ($result['status'] ?? '') !== 'failed';
+        $this->preferences->markOwnershipTxtCleaned(
+            $this->hostnames->cloudflareProviderIdFor($providerId),
+            $hostnameId,
+            $cleaned,
+            $fqdn,
+        );
+
+        return $result;
+    }
+
+    private function isHostnameActive(array $hostname): bool
+    {
+        return in_array((string) ($hostname['status'] ?? ''), ['active', 'active_renewing', 'moved'], true);
     }
 }
